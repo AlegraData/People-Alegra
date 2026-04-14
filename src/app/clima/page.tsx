@@ -129,9 +129,8 @@ export default function ClimaPage() {
 
   if (role === "loading" || loading) {
     return (
-      <div className="flex flex-col justify-center items-center py-20 gap-4">
+      <div className="flex-1 flex flex-col justify-center items-center min-h-[60vh]">
         <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-        <p className="text-primary font-bold">Verificando credenciales...</p>
       </div>
     );
   }
