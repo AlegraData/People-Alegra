@@ -42,7 +42,14 @@ export async function middleware(request: NextRequest) {
     // Sin sesión → redirigir al login
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/login";
-    return NextResponse.redirect(loginUrl);
+    const redirectResponse = NextResponse.redirect(loginUrl);
+    
+    // IMPORTANTE: Copiar las cookies (ej. limpieza de sesión) al nuevo response
+    response.cookies.getAll().forEach((cookie) => {
+      redirectResponse.cookies.set(cookie.name, cookie.value, cookie);
+    });
+
+    return redirectResponse;
   }
 
   return response;
