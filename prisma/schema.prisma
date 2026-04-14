@@ -1,0 +1,79 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  admin
+  manager
+  viewer
+}
+
+model UserRole {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @unique @map("user_id") @db.Uuid
+  email     String   @unique
+  role      Role
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @map("updated_at")
+
+  @@map("user_roles")
+}
+
+model Employee {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  gid       BigInt   @unique
+  email     String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @map("updated_at")
+
+  personalInfo      EmployeePersonalInfo[]
+  climateResponses  ClimateSurveyResponse[]
+
+  @@map("employees")
+}
+
+model EmployeePersonalInfo {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId        String   @map("employee_id") @db.Uuid
+  nombres           String?
+  primerApellido    String?  @map("primer_apellido")
+  segundoApellido   String?  @map("segundo_apellido")
+  validoDesde       DateTime @default(now()) @map("valido_desde")
+  esActual          Boolean? @default(true) @map("es_actual")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  employee          Employee @relation(fields: [employeeId], references: [id])
+
+  @@map("employee_personal_info")
+}
+
+model ClimateSurvey {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title       String
+  description String?
+  questions   Json     
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  
+  responses   ClimateSurveyResponse[]
+
+  @@map("climate_surveys")
+}
+
+model ClimateSurveyResponse {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  surveyId    String   @map("survey_id") @db.Uuid
+  employeeId  String   @map("employee_id") @db.Uuid
+  answers     Json     
+  submittedAt DateTime @default(now()) @map("submitted_at")
+
+  survey      ClimateSurvey @relation(fields: [surveyId], references: [id])
+  employee    Employee      @relation(fields: [employeeId], references: [id])
+
+  @@map("climate_survey_responses")
+}

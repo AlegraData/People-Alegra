@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>People Alegra - Dashboard</title>
+    <!-- Tailwind CSS para diseño moderno y rápido -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons para la iconografía -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+        
+        :root {
+            --primary: #00D6BC;
+            --dark-bg: #1e293b;
+            --body-bg: #f1f5f9;
+            --white: #FFFFFF;
+            --gray-text: #64748b;
+            --dark-text: #1e293b;
+            --error: #EF4444;
+            --success: #10B981;
+        }
+
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: var(--body-bg);
+            color: var(--dark-text);
+        }
+
+        .text-primary { color: var(--primary); }
+        .bg-primary { background-color: var(--primary); }
+        .border-primary { border-color: var(--primary); }
+
+        .card-shadow:hover {
+            box-shadow: 0 25px 50px -12px rgba(0, 214, 188, 0.12);
+        }
+
+        .logo-img {
+            width: 32px;
+            height: 32px;
+            object-fit: contain;
+        }
+
+        /* Estilos personalizados para el scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--primary);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- Header -->
+    <header class="bg-white border-b border-slate-200 px-4 md:px-8 py-4 flex justify-between items-center sticky top-0 z-50 shadow-sm">
+        <div class="flex items-center gap-3">
+            <div class="p-1 rounded-lg">
+                <img src="https://www.alegra.com/favicon.ico" alt="Alegra" class="logo-img">
+            </div>
+            <div class="flex flex-col">
+                <h1 class="text-xl font-black tracking-tight text-[#1e293b] leading-none">
+                    People <span class="text-primary">Alegra</span>
+                </h1>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-2 md:gap-6">
+            <button class="relative p-2 text-[#64748b] hover:text-primary transition-colors">
+                <i data-lucide="bell" class="w-5 h-5"></i>
+                <span class="absolute top-2 right-2 w-2 h-2 bg-[#EF4444] rounded-full border-2 border-white"></span>
+            </button>
+            
+            <div class="flex items-center gap-3 pl-4 md:pl-6 border-l border-slate-200 group cursor-pointer" id="profile-trigger">
+                <div class="text-right hidden sm:block">
+                    <p class="text-sm font-bold text-[#1e293b] group-hover:text-primary transition-colors">Lucas Mena</p>
+                    <p class="text-[10px] font-medium text-[#64748b]">Desarrollador Frontend</p>
+                </div>
+                <div class="relative">
+                    <img 
+                        src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=150&h=150" 
+                        alt="Perfil de Lucas Mena" 
+                        class="w-10 h-10 rounded-full object-cover ring-2 ring-slate-50 transition-all group-hover:ring-[#00D6BC]/20"
+                    />
+                    <div class="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-[#10B981] rounded-full border-2 border-white"></div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 max-w-6xl w-full mx-auto px-4 md:px-8 py-12">
+        <div class="mb-12">
+            <h2 class="text-4xl font-extrabold text-[#1e293b] mb-3 tracking-tight">
+                ¡Hola, Lucas! 👋
+            </h2>
+            <p class="text-[#64748b] text-lg max-w-2xl leading-relaxed">
+                Bienvenido a tu portal de crecimiento. Aquí puedes gestionar tu feedback, 
+                participar en encuestas y ver el impacto de tu labor en la cultura de Alegra.
+            </p>
+        </div>
+
+        <!-- Cards Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <!-- Card 1: eNPS -->
+            <div class="group bg-white border border-slate-100 rounded-[2rem] p-8 shadow-sm card-shadow transition-all duration-500 flex flex-col border-b-4 hover:border-b-[#00D6BC]">
+                <div class="bg-[#00D6BC]/10 w-14 h-14 rounded-2xl flex items-center justify-center mb-8 group-hover:scale-110 transition-transform duration-500">
+                    <i data-lucide="trending-up" class="w-6 h-6 text-primary"></i>
+                </div>
+                <h3 class="text-2xl font-bold text-[#1e293b] mb-4">Módulo eNPS</h3>
+                <p class="text-[#64748b] text-sm leading-relaxed mb-8 flex-1">
+                    Tu opinión nos importa. Califica tu experiencia general en Alegra con una sola pregunta.
+                </p>
+                <div class="pt-6 mt-auto border-t border-slate-50">
+                    <div class="flex justify-between items-center mb-6">
+                        <span class="text-[10px] font-bold uppercase tracking-widest text-[#64748b]">Tu Estado</span>
+                        <span class="px-3 py-1 rounded-full text-[10px] font-black uppercase bg-[#00D6BC]/10 text-primary">Pendiente</span>
+                    </div>
+                    <button onclick="handleAction('eNPS')" class="w-full flex items-center justify-center gap-2 py-4 px-6 rounded-2xl font-bold text-sm transition-all bg-[#1e293b] text-white hover:bg-primary hover:shadow-lg hover:shadow-[#00D6BC]/20">
+                        Responder Encuesta
+                        <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Card 2: Clima -->
+            <div class="group bg-white border border-slate-100 rounded-[2rem] p-8 shadow-sm card-shadow transition-all duration-500 flex flex-col border-b-4 hover:border-b-[#00D6BC]">
+                <div class="bg-[#00D6BC]/10 w-14 h-14 rounded-2xl flex items-center justify-center mb-8 group-hover:scale-110 transition-transform duration-500">
+                    <i data-lucide="message-square" class="w-6 h-6 text-primary"></i>
+                </div>
+                <h3 class="text-2xl font-bold text-[#1e293b] mb-4">Encuestas de Clima</h3>
+                <p class="text-[#64748b] text-sm leading-relaxed mb-8 flex-1">
+                    Participa en los estudios de cultura organizacional para seguir construyendo el mejor lugar para trabajar.
+                </p>
+                <div class="pt-6 mt-auto border-t border-slate-50">
+                    <div class="flex justify-between items-center mb-6">
+                        <span class="text-[10px] font-bold uppercase tracking-widest text-[#64748b]">Tu Estado</span>
+                        <span class="px-3 py-1 rounded-full text-[10px] font-black uppercase bg-[#10B981]/10 text-[#10B981]">Completada</span>
+                    </div>
+                    <button onclick="handleAction('Clima')" class="w-full flex items-center justify-center gap-2 py-4 px-6 rounded-2xl font-bold text-sm transition-all bg-[#1e293b] text-white hover:bg-primary hover:shadow-lg hover:shadow-[#00D6BC]/20">
+                        Ver Resultados
+                        <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Card 3: 360 -->
+            <div class="group bg-white border border-slate-100 rounded-[2rem] p-8 shadow-sm card-shadow transition-all duration-500 flex flex-col border-b-4 hover:border-b-[#00D6BC]">
+                <div class="bg-[#00D6BC]/10 w-14 h-14 rounded-2xl flex items-center justify-center mb-8 group-hover:scale-110 transition-transform duration-500">
+                    <i data-lucide="user-round" class="w-6 h-6 text-primary"></i>
+                </div>
+                <h3 class="text-2xl font-bold text-[#1e293b] mb-4">Evaluaciones 360°</h3>
+                <p class="text-[#64748b] text-sm leading-relaxed mb-8 flex-1">
+                    Envía y recibe retroalimentación constructiva de tus compañeros y líderes de equipo.
+                </p>
+                <div class="pt-6 mt-auto border-t border-slate-50">
+                    <div class="flex justify-between items-center mb-6">
+                        <span class="text-[10px] font-bold uppercase tracking-widest text-[#64748b]">Tu Estado</span>
+                        <span class="px-3 py-1 rounded-full text-[10px] font-black uppercase bg-[#00D6BC]/10 text-primary">2 Asignadas</span>
+                    </div>
+                    <button onclick="handleAction('360')" class="w-full flex items-center justify-center gap-2 py-4 px-6 rounded-2xl font-bold text-sm transition-all bg-[#1e293b] text-white hover:bg-primary hover:shadow-lg hover:shadow-[#00D6BC]/20">
+                        Realizar Evaluación
+                        <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Banner de Ayuda y Privacidad -->
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t border-slate-200 py-10">
+        <div class="max-w-6xl mx-auto px-4 md:px-8 flex flex-col md:flex-row justify-between items-center gap-8">
+            <div class="flex flex-col gap-1 items-center md:items-start text-center md:text-left">
+                <div class="flex items-center gap-2">
+                    <div class="w-2 h-2 bg-primary rounded-full animate-pulse"></div>
+                    <span class="text-sm font-bold text-[#1e293b] italic">IT</span>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Notificación Personalizada -->
+    <div id="toast" class="fixed bottom-8 right-8 bg-[#1e293b] text-white px-6 py-4 rounded-2xl shadow-2xl translate-y-24 opacity-0 transition-all duration-300 z-[100] flex items-center gap-3">
+        <i data-lucide="info" class="w-5 h-5 text-primary"></i>
+        <span id="toast-message" class="text-sm font-bold"></span>
+    </div>
+
+    <script>
+        // Inicializar Iconos
+        lucide.createIcons();
+
+        // Lógica de Interacción
+        function handleAction(moduleName) {
+            const toast = document.getElementById('toast');
+            const toastMsg = document.getElementById('toast-message');
+            
+            toastMsg.innerText = `Abriendo el módulo de ${moduleName}...`;
+            
+            // Mostrar Toast
+            toast.classList.remove('translate-y-24', 'opacity-0');
+            
+            // Ocultar después de 3 segundos
+            setTimeout(() => {
+                toast.classList.add('translate-y-24', 'opacity-0');
+            }, 3000);
+        }
+
+        // Efecto visual al hacer clic en el perfil
+        document.getElementById('profile-trigger').addEventListener('click', () => {
+            handleAction('Perfil de Usuario');
+        });
+    </script>
+</body>
+</html>

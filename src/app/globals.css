@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --primary: #00D6BC;
+  --dark-bg: #1e293b;
+  --body-bg: #f1f5f9;
+}
+
+.card-shadow:hover {
+  box-shadow: 0 25px 50px -12px rgba(0, 214, 188, 0.12);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--primary);
+}
