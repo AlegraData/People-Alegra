@@ -63,16 +63,7 @@ export async function GET(request: NextRequest) {
         // Si falla el registro en user_roles no bloqueamos el login
       }
 
-      // En Vercel el host real viene en x-forwarded-host
-      const forwardedHost = request.headers.get("x-forwarded-host");
-      const baseUrl =
-        process.env.NODE_ENV === "development"
-          ? origin
-          : forwardedHost
-          ? `https://${forwardedHost}`
-          : origin;
-
-      const response = NextResponse.redirect(`${baseUrl}${next}`);
+      const response = NextResponse.redirect(`${origin}${next}`);
 
       // Adjuntar las cookies de sesión a la respuesta de redirección
       cookieSetters.forEach(({ name, value, options }) => {
@@ -83,14 +74,5 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Error en el intercambio de código
-  const forwardedHost = request.headers.get("x-forwarded-host");
-  const baseUrl =
-    process.env.NODE_ENV === "development"
-      ? origin
-      : forwardedHost
-      ? `https://${forwardedHost}`
-      : origin;
-
-  return NextResponse.redirect(`${baseUrl}/login?error=auth_callback_error`);
+  return NextResponse.redirect(`${origin}/login?error=auth_callback_error`);
 }
