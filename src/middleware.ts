@@ -7,13 +7,14 @@ const PUBLIC_ROUTES = ["/login", "/auth/callback"];
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Dejar pasar rutas públicas sin verificar sesión
-  if (PUBLIC_ROUTES.some((r) => pathname.startsWith(r))) {
-    return NextResponse.next();
-  }
+  // 1. Crear una respuesta inicial
+  let response = NextResponse.next({
+    request: {
+      headers: request.headers,
+    },
+  });
 
-  let response = NextResponse.next({ request });
-
+  // 2. Configurar el cliente de Supabase
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -26,7 +27,9 @@ export async function middleware(request: NextRequest) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           );
-          response = NextResponse.next({ request });
+          response = NextResponse.next({
+            request,
+          });
           cookiesToSet.forEach(({ name, value, options }) =>
             response.cookies.set(name, value, options)
           );
@@ -35,20 +38,24 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  // getUser() refresca el token si hace falta y valida la sesión
+  // 3. Validar la sesión
   const { data: { user } } = await supabase.auth.getUser();
 
-  if (!user) {
-    // Sin sesión → redirigir al login
-    const loginUrl = request.nextUrl.clone();
-    loginUrl.pathname = "/login";
+  // 4. Lógica de redirección
+  if (user && pathname === "/login") {
+    // Si ya está logueado y va a /login -> al home
+    return NextResponse.redirect(new URL("/", request.url));
+  }
+
+  if (!user && !PUBLIC_ROUTES.some((r) => pathname.startsWith(r))) {
+    // Si NO está logueado y va a una ruta protegida -> al login
+    const loginUrl = new URL("/login", request.url);
     const redirectResponse = NextResponse.redirect(loginUrl);
     
-    // IMPORTANTE: Copiar las cookies (ej. limpieza de sesión) al nuevo response
+    // Copiar cookies de la sesión (limpieza si hubo error) al redirect
     response.cookies.getAll().forEach((cookie) => {
       redirectResponse.cookies.set(cookie.name, cookie.value, cookie);
     });
-
     return redirectResponse;
   }
 
