@@ -65,7 +65,13 @@ export async function GET(request: NextRequest) {
         // Si falla el registro en user_roles no bloqueamos el login
       }
 
-      const response = NextResponse.redirect(`${origin}${next}`);
+      // Construir una URL absoluta para la redirección segura
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = next;
+      redirectUrl.searchParams.delete("code");
+      redirectUrl.searchParams.delete("next");
+
+      const response = NextResponse.redirect(redirectUrl);
 
       // Adjuntar las cookies de sesión a la respuesta de redirección
       cookieSetters.forEach(({ name, value, options }) => {
