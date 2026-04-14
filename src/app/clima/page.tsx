@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { Settings2, UserCheck } from "lucide-react";
+import { Settings2, UserCheck, ChevronLeft } from "lucide-react";
+import Link from "next/link";
 import { createClient } from "@/utils/supabase/client";
 import type { Role, Survey, SurveyFormData } from "@/types/clima";
 import AdminList         from "@/components/clima/AdminList";
@@ -41,7 +42,7 @@ export default function ClimaPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         try {
-          const roleRes = await fetch("/api/auth/role");
+          const roleRes = await fetch("/api/auth/role?module=clima");
           setRole(roleRes.ok ? (await roleRes.json()).role ?? "viewer" : "viewer");
         } catch {
           setRole("viewer");
@@ -140,6 +141,15 @@ export default function ClimaPage() {
 
   return (
     <div className="space-y-8">
+      {/* Botón volver */}
+      <Link
+        href="/"
+        className="inline-flex items-center gap-1.5 text-sm font-bold text-[#64748b] hover:text-primary transition-colors"
+      >
+        <ChevronLeft className="w-4 h-4" />
+        Inicio
+      </Link>
+
       {/* Header del módulo */}
       <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
         <div>
