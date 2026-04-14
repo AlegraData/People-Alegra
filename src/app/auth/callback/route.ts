@@ -1,52 +1,96 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@/utils/supabase/server";
+import { NextResponse, type NextRequest } from "next/server";
+import { createServerClient } from "@supabase/ssr";
 import { supabaseAdmin } from "@/utils/supabase/admin";
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
   const next = searchParams.get("next") ?? "/";
 
   if (code) {
-    const supabase = await createClient();
+    // Collect cookies that Supabase wants to set so we can attach them
+    // directly to the redirect response (instead of relying on next/headers).
+    const cookieSetters: Array<{ name: string; value: string; options: Record<string, unknown> }> = [];
+
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return request.cookies.getAll();
+          },
+          setAll(cookiesToSet) {
+            cookiesToSet.forEach((c) => cookieSetters.push(c));
+          },
+        },
+      }
+    );
+
     const { error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (!error) {
       // Registrar / actualizar el usuario en user_roles
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data: existing } = await supabaseAdmin
-          .from("user_roles")
-          .select("id")
-          .eq("user_id", user.id)
-          .single();
-
-        if (!existing) {
-          // Primer login: crear registro con rol viewer por defecto
-          await supabaseAdmin.from("user_roles").insert({
-            user_id:    user.id,
-            email:      user.email!,
-            full_name:  user.user_metadata?.full_name  ?? null,
-            avatar_url: user.user_metadata?.avatar_url ?? null,
-            role:       "viewer",
-          });
-        } else {
-          // Logins posteriores: refrescar nombre y avatar sin tocar el rol
-          await supabaseAdmin
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: existing } = await supabaseAdmin
             .from("user_roles")
-            .update({
+            .select("id")
+            .eq("user_id", user.id)
+            .single();
+
+          if (!existing) {
+            await supabaseAdmin.from("user_roles").insert({
+              user_id:    user.id,
+              email:      user.email!,
               full_name:  user.user_metadata?.full_name  ?? null,
               avatar_url: user.user_metadata?.avatar_url ?? null,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("user_id", user.id);
+              role:       "viewer",
+            });
+          } else {
+            await supabaseAdmin
+              .from("user_roles")
+              .update({
+                full_name:  user.user_metadata?.full_name  ?? null,
+                avatar_url: user.user_metadata?.avatar_url ?? null,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("user_id", user.id);
+          }
         }
+      } catch {
+        // Si falla el registro en user_roles no bloqueamos el login
       }
 
-      return NextResponse.redirect(`${origin}${next}`);
+      // En Vercel el host real viene en x-forwarded-host
+      const forwardedHost = request.headers.get("x-forwarded-host");
+      const baseUrl =
+        process.env.NODE_ENV === "development"
+          ? origin
+          : forwardedHost
+          ? `https://${forwardedHost}`
+          : origin;
+
+      const response = NextResponse.redirect(`${baseUrl}${next}`);
+
+      // Adjuntar las cookies de sesión a la respuesta de redirección
+      cookieSetters.forEach(({ name, value, options }) => {
+        response.cookies.set(name, value, options as Parameters<typeof response.cookies.set>[2]);
+      });
+
+      return response;
     }
   }
 
-  // Si hay error, volver al login
-  return NextResponse.redirect(`${origin}/login`);
+  // Error en el intercambio de código
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  const baseUrl =
+    process.env.NODE_ENV === "development"
+      ? origin
+      : forwardedHost
+      ? `https://${forwardedHost}`
+      : origin;
+
+  return NextResponse.redirect(`${baseUrl}/login?error=auth_callback_error`);
 }
