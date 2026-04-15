@@ -9,6 +9,8 @@ import {
 import Link from "next/link";
 
 type Role = "admin" | "manager" | "viewer";
+type PageSize = 10 | 25 | 50 | 100 | "all";
+const PAGE_SIZES: PageSize[] = [10, 25, 50, 100, "all"];
 
 interface ModuleRole { module: string; role: Role; }
 
@@ -50,6 +52,8 @@ export default function AdminPage() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [expandedUser, setExpandedUser]   = useState<string | null>(null);
   const [moduleEdits, setModuleEdits]     = useState<Record<string, string>>({});
+  const [page, setPage]                   = useState(1);
+  const [pageSize, setPageSize]           = useState<PageSize>(10);
   const [savingModules, setSavingModules] = useState(false);
   const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -165,11 +169,27 @@ export default function AdminPage() {
     }
   };
 
-  // ── Filtro ──────────────────────────────────────────────────────────────────
+  // ── Filtro + paginación ─────────────────────────────────────────────────────
   const filtered = users.filter((u) => {
     const q = search.toLowerCase();
     return u.email.toLowerCase().includes(q) || (u.full_name ?? "").toLowerCase().includes(q);
   });
+
+  // Resetear a página 1 cuando cambia la búsqueda
+  useEffect(() => { setPage(1); }, [search]);
+
+  const totalPages  = pageSize === "all" ? 1 : Math.ceil(filtered.length / (pageSize as number));
+  const paginated   = pageSize === "all"
+    ? filtered
+    : filtered.slice((page - 1) * (pageSize as number), page * (pageSize as number));
+
+  const visiblePages = (() => {
+    const pages: number[] = [];
+    const start = Math.max(1, page - 2);
+    const end   = Math.min(totalPages, start + 4);
+    for (let i = start; i <= end; i++) pages.push(i);
+    return pages;
+  })();
 
   const counts = users.reduce(
     (acc, u) => { acc[u.role] = (acc[u.role] ?? 0) + 1; return acc; },
@@ -225,16 +245,33 @@ export default function AdminPage() {
 
       {/* Tabla */}
       <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden">
-        {/* Buscador */}
+        {/* Buscador + selector de página */}
         <div className="p-6 border-b border-slate-100">
-          <div className="relative max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#64748b]" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar por nombre o email..."
-              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-primary transition-colors"
-            />
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="relative flex-1 max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#64748b]" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Buscar por nombre o email..."
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-primary transition-colors"
+              />
+            </div>
+            <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1 shrink-0">
+              {PAGE_SIZES.map((size) => (
+                <button
+                  key={size}
+                  onClick={() => { setPageSize(size); setPage(1); }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    pageSize === size
+                      ? "bg-white shadow-sm text-[#1e293b]"
+                      : "text-[#64748b] hover:text-[#1e293b]"
+                  }`}
+                >
+                  {size === "all" ? "Todos" : size}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -255,7 +292,7 @@ export default function AdminPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((u) => {
+                {paginated.map((u) => {
                   const cfg          = ROLE_CONFIG[u.role];
                   const isUpdating   = updating === u.user_id;
                   const isConfirming = confirmDelete === u.user_id;
@@ -450,6 +487,50 @@ export default function AdminPage() {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Paginación */}
+        {filtered.length > 0 && (
+          <div className="px-6 py-4 border-t border-slate-100">
+            {pageSize !== "all" && totalPages > 1 ? (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                <p className="text-xs text-[#64748b]">
+                  {filtered.length} usuario{filtered.length !== 1 ? "s" : ""} · página {page} de {totalPages}
+                </p>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    className="px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-200 disabled:opacity-40 hover:bg-slate-50 transition-colors"
+                  >
+                    ← Anterior
+                  </button>
+                  {visiblePages.map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => setPage(p)}
+                      className={`w-8 h-8 text-xs font-bold rounded-lg transition-colors ${
+                        page === p ? "bg-primary text-white" : "text-[#64748b] hover:bg-slate-100"
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={page === totalPages}
+                    className="px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-200 disabled:opacity-40 hover:bg-slate-50 transition-colors"
+                  >
+                    Siguiente →
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-[#64748b]">
+                {filtered.length} usuario{filtered.length !== 1 ? "s" : ""} en total
+              </p>
+            )}
           </div>
         )}
       </div>

@@ -125,14 +125,7 @@ export default function ParticipantSelector({
       : <ChevronDown className="w-3 h-3 text-primary" />;
   };
 
-  const columns: { label: string; field: SortField }[] = [
-    { label: "Nombre completo", field: "nombre_completo" },
-    { label: "Cargo",          field: "cargo" },
-    { label: "Equipo",         field: "equipo" },
-    { label: "Ingreso",        field: "fecha_original" },
-  ];
-
-  return (
+return (
     <div className="bg-white rounded-[2rem] p-8 border border-slate-100 shadow-sm">
 
       {/* Header */}
@@ -211,20 +204,23 @@ export default function ParticipantSelector({
                   className="rounded accent-primary w-4 h-4 cursor-pointer"
                 />
               </th>
-              {columns.map((col) => (
-                <th
-                  key={col.field}
-                  onClick={() => handleSort(col.field)}
-                  className="py-3 pr-4 text-[10px] uppercase tracking-widest text-[#64748b] font-black cursor-pointer hover:text-[#1e293b] transition-colors select-none"
-                >
-                  <div className="flex items-center gap-1.5">
-                    {col.label}
-                    <SortIcon field={col.field} />
-                  </div>
-                </th>
-              ))}
-              <th className="py-3 pr-4 text-[10px] uppercase tracking-widest text-[#64748b] font-black">
-                Correo
+              {/* Nombre completo */}
+              <th onClick={() => handleSort("nombre_completo")} className="py-3 pr-4 text-[10px] uppercase tracking-widest text-[#64748b] font-black cursor-pointer hover:text-[#1e293b] transition-colors select-none">
+                <div className="flex items-center gap-1.5">Nombre completo <SortIcon field="nombre_completo" /></div>
+              </th>
+              {/* Correo — no sortable */}
+              <th className="py-3 pr-4 text-[10px] uppercase tracking-widest text-[#64748b] font-black">Correo</th>
+              {/* Equipo */}
+              <th onClick={() => handleSort("equipo")} className="py-3 pr-4 text-[10px] uppercase tracking-widest text-[#64748b] font-black cursor-pointer hover:text-[#1e293b] transition-colors select-none">
+                <div className="flex items-center gap-1.5">Equipo <SortIcon field="equipo" /></div>
+              </th>
+              {/* Cargo */}
+              <th onClick={() => handleSort("cargo")} className="py-3 pr-4 text-[10px] uppercase tracking-widest text-[#64748b] font-black cursor-pointer hover:text-[#1e293b] transition-colors select-none">
+                <div className="flex items-center gap-1.5">Cargo <SortIcon field="cargo" /></div>
+              </th>
+              {/* Ingreso */}
+              <th onClick={() => handleSort("fecha_original")} className="py-3 pr-4 text-[10px] uppercase tracking-widest text-[#64748b] font-black cursor-pointer hover:text-[#1e293b] transition-colors select-none">
+                <div className="flex items-center gap-1.5">Ingreso <SortIcon field="fecha_original" /></div>
               </th>
             </tr>
           </thead>
@@ -261,25 +257,25 @@ export default function ParticipantSelector({
                         className="rounded accent-primary w-4 h-4 cursor-pointer"
                       />
                     </td>
-                    <td className="py-3.5 pr-4 font-semibold text-sm text-[#1e293b]">
+                    <td className="py-3.5 pr-4 font-semibold text-sm text-[#1e293b] whitespace-nowrap">
                       {emp.nombre_completo || "—"}
                     </td>
-                    <td className="py-3.5 pr-4 text-sm text-[#64748b]">
-                      {emp.cargo || "—"}
+                    <td className="py-3.5 pr-4 text-xs text-[#64748b] whitespace-nowrap">
+                      {emp.correo}
                     </td>
-                    <td className="py-3.5 pr-4 text-sm text-[#64748b]">
+                    <td className="py-3.5 pr-4 text-sm text-[#64748b] whitespace-nowrap">
                       {emp.equipo || "—"}
                     </td>
-                    <td className="py-3.5 pr-4 text-xs text-[#64748b]">
+                    <td className="py-3.5 pr-4 text-sm text-[#64748b] whitespace-nowrap">
+                      {emp.cargo || "—"}
+                    </td>
+                    <td className="py-3.5 pr-4 text-xs text-[#64748b] whitespace-nowrap">
                       {emp.fecha_original
                         ? new Date(emp.fecha_original).toLocaleDateString("es-CO", {
                             year: "numeric",
                             month: "short",
                           })
                         : "—"}
-                    </td>
-                    <td className="py-3.5 pr-4 text-xs text-[#64748b]">
-                      {emp.correo}
                     </td>
                   </tr>
                 );

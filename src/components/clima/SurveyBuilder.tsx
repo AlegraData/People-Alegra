@@ -55,7 +55,7 @@ export default function SurveyBuilder({ onSave, onCancel, initialData }: SurveyB
   const maxStep = isEditMode ? 2 : 3;
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className={`${step === 3 ? "max-w-5xl" : "max-w-3xl"} mx-auto space-y-6`}>
 
       {/* Indicador de pasos */}
       <div className="flex items-center">
