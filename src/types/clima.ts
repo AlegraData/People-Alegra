@@ -1,10 +1,15 @@
 export type Role = "admin" | "manager" | "viewer";
-export type QuestionType = "text" | "rating" | "boolean";
+export type QuestionType = "text" | "rating" | "boolean" | "choice";
 
 export interface Question {
   id: string;
   text: string;
   type: QuestionType;
+  // rating: rango configurable (default 1-5)
+  ratingMin?: number;
+  ratingMax?: number;
+  // choice: lista de opciones definidas por el admin
+  options?: string[];
 }
 
 export interface Survey {
@@ -13,6 +18,7 @@ export interface Survey {
   description: string;
   questions: Question[];
   isActive: boolean;
+  createdAt: string;
   responsesCount: number;
   assignmentsCount: number;
   hasResponded?: boolean; // solo para viewers

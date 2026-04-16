@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { ArrowLeft, Trash2, CheckCircle2, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Trash2, CheckCircle2, AlertTriangle, X, Plus } from "lucide-react";
 import type { Question, QuestionType, Survey, SurveyFormData, Empleado } from "@/types/clima";
 import ParticipantSelector from "./ParticipantSelector";
 
@@ -8,14 +8,16 @@ type Step = 1 | 2 | 3;
 interface SurveyBuilderProps {
   onSave: (data: SurveyFormData) => void;
   onCancel: () => void;
-  initialData?: Survey; // si existe → modo edición (2 pasos, sin participantes)
+  initialData?: Survey;
 }
 
-const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
-  rating:  "Calificación 1-5",
-  boolean: "Sí / No",
-  text:    "Texto Abierto",
-};
+
+function questionLabel(q: Question): string {
+  if (q.type === "rating") return `Calificación ${q.ratingMin ?? 1}–${q.ratingMax ?? 5}`;
+  if (q.type === "boolean") return "Sí / No";
+  if (q.type === "choice")  return "Opción múltiple";
+  return "Texto abierto";
+}
 
 export default function SurveyBuilder({ onSave, onCancel, initialData }: SurveyBuilderProps) {
   const isEditMode = !!initialData;
@@ -29,30 +31,67 @@ export default function SurveyBuilder({ onSave, onCancel, initialData }: SurveyB
   const [selectedParticipants, setSelectedParticipants] =
     useState<Map<string, Empleado>>(new Map());
 
-  const addQuestion = (type: QuestionType) =>
-    setQuestions((prev) => [...prev, { id: Date.now().toString(), text: "", type }]);
+  // ── Gestión de preguntas ──────────────────────────────────────────────────────
+  const addQuestion = (type: QuestionType) => {
+    const base: Question = { id: Date.now().toString(), text: "", type };
+    if (type === "rating") base.ratingMin = 1, base.ratingMax = 5;
+    if (type === "choice") base.options = ["", "", ""];
+    setQuestions((prev) => [...prev, base]);
+  };
 
-  const updateQuestion = (id: string, text: string) =>
-    setQuestions((prev) => prev.map((q) => (q.id === id ? { ...q, text } : q)));
+  const patchQuestion = (id: string, patch: Partial<Question>) =>
+    setQuestions((prev) => prev.map((q) => (q.id === id ? { ...q, ...patch } : q)));
 
   const removeQuestion = (id: string) =>
     setQuestions((prev) => prev.filter((q) => q.id !== id));
 
+  // Opciones de preguntas choice
+  const addOption = (qId: string) =>
+    setQuestions((prev) =>
+      prev.map((q) => q.id === qId ? { ...q, options: [...(q.options ?? []), ""] } : q)
+    );
+
+  const updateOption = (qId: string, idx: number, value: string) =>
+    setQuestions((prev) =>
+      prev.map((q) =>
+        q.id === qId
+          ? { ...q, options: (q.options ?? []).map((o, i) => (i === idx ? value : o)) }
+          : q
+      )
+    );
+
+  const removeOption = (qId: string, idx: number) =>
+    setQuestions((prev) =>
+      prev.map((q) =>
+        q.id === qId ? { ...q, options: (q.options ?? []).filter((_, i) => i !== idx) } : q
+      )
+    );
+
+  // ── Navegación ────────────────────────────────────────────────────────────────
   const goToStep = (next: Step) => {
     if (next >= 2 && !title.trim()) { alert("Añade un título."); return; }
     if (next >= 3 && questions.length === 0) { alert("Añade al menos una pregunta."); return; }
+    // Validar que las preguntas choice tengan al menos 2 opciones no vacías
+    if (next >= 3) {
+      const invalid = questions.find(
+        (q) => q.type === "choice" && (q.options ?? []).filter((o) => o.trim()).length < 2
+      );
+      if (invalid) { alert("Cada pregunta de opción múltiple debe tener al menos 2 opciones."); return; }
+    }
     setStep(next);
   };
 
-  const handleConfirm = () =>
+  const handleConfirm = () => {
+    const invalid = questions.find(
+      (q) => q.type === "choice" && (q.options ?? []).filter((o) => o.trim()).length < 2
+    );
+    if (invalid) { alert("Cada pregunta de opción múltiple debe tener al menos 2 opciones."); return; }
     onSave({ title, description, questions, participantIds: Array.from(selectedParticipants.keys()) });
+  };
 
-  // Etiquetas y máximo de pasos según modo
   const STEPS = isEditMode
     ? [{ label: "Información" }, { label: "Preguntas" }]
     : [{ label: "Información" }, { label: "Preguntas" }, { label: "Participantes" }];
-
-  const maxStep = isEditMode ? 2 : 3;
 
   return (
     <div className={`${step === 3 ? "max-w-5xl" : "max-w-3xl"} mx-auto space-y-6`}>
@@ -144,7 +183,6 @@ export default function SurveyBuilder({ onSave, onCancel, initialData }: SurveyB
             </div>
           </div>
 
-          {/* Advertencia en modo edición con respuestas existentes */}
           {isEditMode && initialData.responsesCount > 0 && (
             <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 mb-6">
               <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
@@ -160,30 +198,98 @@ export default function SurveyBuilder({ onSave, onCancel, initialData }: SurveyB
                 Aún no hay preguntas. Usa los botones de abajo para agregar.
               </div>
             )}
+
             {questions.map((q, i) => (
               <div key={q.id} className="flex gap-4 items-start p-4 border border-slate-100 rounded-xl hover:border-slate-200 transition-colors">
-                <span className="bg-slate-100 text-[#64748b] font-bold w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-sm">{i + 1}</span>
-                <div className="flex-1">
+                <span className="bg-slate-100 text-[#64748b] font-bold w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-sm mt-0.5">{i + 1}</span>
+
+                <div className="flex-1 min-w-0">
+                  {/* Texto de la pregunta */}
                   <input
                     value={q.text}
-                    onChange={(e) => updateQuestion(q.id, e.target.value)}
-                    className="w-full bg-transparent border-b border-slate-200 py-1 outline-none focus:border-primary transition-colors font-medium mb-2"
+                    onChange={(e) => patchQuestion(q.id, { text: e.target.value })}
+                    className="w-full bg-transparent border-b border-slate-200 py-1 outline-none focus:border-primary transition-colors font-medium mb-3"
                     placeholder="Escribe tu pregunta..."
                   />
+
+                  {/* Badge del tipo */}
                   <span className="text-[10px] font-bold uppercase text-primary bg-[#00D6BC]/10 px-2 py-1 rounded-md">
-                    {QUESTION_TYPE_LABELS[q.type]}
+                    {questionLabel(q)}
                   </span>
+
+                  {/* ── Opciones de Calificación ── */}
+                  {q.type === "rating" && (
+                    <div className="mt-3 flex items-center gap-2">
+                      <span className="text-xs font-bold text-[#64748b]">Rango:</span>
+                      <input
+                        type="number"
+                        value={q.ratingMin ?? 1}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value);
+                          if (!isNaN(val)) patchQuestion(q.id, { ratingMin: val });
+                        }}
+                        className="w-16 text-center text-sm font-bold bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-primary transition-colors"
+                      />
+                      <span className="text-xs text-[#64748b] font-bold">hasta</span>
+                      <input
+                        type="number"
+                        value={q.ratingMax ?? 5}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value);
+                          if (!isNaN(val)) patchQuestion(q.id, { ratingMax: val });
+                        }}
+                        className="w-16 text-center text-sm font-bold bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-primary transition-colors"
+                      />
+                    </div>
+                  )}
+
+                  {/* ── Opciones múltiples ── */}
+                  {q.type === "choice" && (
+                    <div className="mt-3 space-y-2">
+                      {(q.options ?? []).map((opt, idx) => (
+                        <div key={idx} className="flex items-center gap-2">
+                          <span className="w-5 h-5 rounded-full border-2 border-slate-300 shrink-0" />
+                          <input
+                            value={opt}
+                            onChange={(e) => updateOption(q.id, idx, e.target.value)}
+                            className="flex-1 text-sm bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 outline-none focus:border-primary transition-colors"
+                            placeholder={`Opción ${idx + 1}`}
+                          />
+                          {(q.options ?? []).length > 2 && (
+                            <button
+                              onClick={() => removeOption(q.id, idx)}
+                              className="p-1 text-slate-400 hover:text-red-500 transition-colors"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      <button
+                        onClick={() => addOption(q.id)}
+                        className="flex items-center gap-1.5 text-xs font-bold text-primary hover:text-primary/70 transition-colors mt-1"
+                      >
+                        <Plus className="w-3 h-3" />
+                        Agregar opción
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <button onClick={() => removeQuestion(q.id)} className="text-error hover:bg-error/10 p-2 rounded-lg transition-colors">
+
+                <button onClick={() => removeQuestion(q.id)} className="text-error hover:bg-error/10 p-2 rounded-lg transition-colors shrink-0">
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
             ))}
-            <div className="flex gap-2 pt-2">
-              <button onClick={() => addQuestion("rating")}  className="text-xs font-bold bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg transition-colors">+ Calificación 1-5</button>
+
+            {/* Botones para agregar preguntas */}
+            <div className="flex flex-wrap gap-2 pt-2">
+              <button onClick={() => addQuestion("rating")}  className="text-xs font-bold bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg transition-colors">+ Calificación</button>
               <button onClick={() => addQuestion("boolean")} className="text-xs font-bold bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg transition-colors">+ Sí / No</button>
+              <button onClick={() => addQuestion("choice")}  className="text-xs font-bold bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg transition-colors">+ Opción múltiple</button>
               <button onClick={() => addQuestion("text")}    className="text-xs font-bold bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg transition-colors">+ Texto abierto</button>
             </div>
+
             <div className="flex justify-between pt-8 border-t border-slate-100">
               <button onClick={() => setStep(1)} className="text-sm font-bold text-[#64748b] hover:text-[#1e293b] transition-colors">← Volver</button>
               {isEditMode ? (
@@ -200,7 +306,7 @@ export default function SurveyBuilder({ onSave, onCancel, initialData }: SurveyB
         </div>
       )}
 
-      {/* Paso 3 — Participantes (solo modo creación) */}
+      {/* Paso 3 — Participantes */}
       {step === 3 && !isEditMode && (
         <ParticipantSelector
           selected={selectedParticipants}

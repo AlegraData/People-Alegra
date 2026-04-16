@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
-import { Bell, LogOut, Shield, ClipboardList, ChevronRight, CheckCircle2 } from "lucide-react";
+import { Bell, LogOut, Shield, ClipboardList, TrendingUp, ChevronRight, CheckCircle2 } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -9,6 +9,7 @@ interface PendingSurvey {
   id: string;
   title: string;
   description: string;
+  module: "clima" | "enps";
 }
 
 export default function Header() {
@@ -27,10 +28,11 @@ export default function Header() {
       if (!user) return;
       setUser(user);
 
-      const [roleRes, profileRes, surveysRes] = await Promise.allSettled([
+      const [roleRes, profileRes, climaRes, enpsRes] = await Promise.allSettled([
         fetch("/api/auth/role"),
         fetch("/api/auth/profile"),
         fetch("/api/clima/surveys"),
+        fetch("/api/enps/surveys"),
       ]);
 
       if (roleRes.status === "fulfilled" && roleRes.value.ok) {
@@ -45,16 +47,31 @@ export default function Header() {
         setCargo(cargo ?? "");
       }
 
-      if (surveysRes.status === "fulfilled" && surveysRes.value.ok) {
-        const surveys = await surveysRes.value.json();
+      const pending: PendingSurvey[] = [];
+
+      if (climaRes.status === "fulfilled" && climaRes.value.ok) {
+        const surveys = await climaRes.value.json();
         if (Array.isArray(surveys)) {
-          setPendingSurveys(
-            surveys
-              .filter((s: any) => s.isActive && !s.hasResponded)
-              .map((s: any) => ({ id: s.id, title: s.title, description: s.description ?? "" }))
-          );
+          surveys
+            .filter((s: any) => s.isActive && !s.hasResponded)
+            .forEach((s: any) =>
+              pending.push({ id: s.id, title: s.title, description: s.description ?? "", module: "clima" })
+            );
         }
       }
+
+      if (enpsRes.status === "fulfilled" && enpsRes.value.ok) {
+        const surveys = await enpsRes.value.json();
+        if (Array.isArray(surveys)) {
+          surveys
+            .filter((s: any) => s.isActive && !s.hasResponded)
+            .forEach((s: any) =>
+              pending.push({ id: s.id, title: s.title, description: s.description ?? "", module: "enps" })
+            );
+        }
+      }
+
+      setPendingSurveys(pending);
     };
     init();
   }, []);
@@ -146,22 +163,25 @@ export default function Header() {
               ) : (
                 <ul className="divide-y divide-slate-50 max-h-72 overflow-y-auto">
                   {pendingSurveys.map((s) => (
-                    <li key={s.id}>
+                    <li key={`${s.module}-${s.id}`}>
                       <Link
-                        href="/clima"
+                        href={s.module === "enps" ? "/enps" : "/clima"}
                         onClick={() => setShowNotif(false)}
                         className="flex items-start gap-3 px-5 py-4 hover:bg-slate-50 transition-colors"
                       >
                         <div className="w-9 h-9 bg-primary/10 rounded-xl flex items-center justify-center shrink-0 mt-0.5">
-                          <ClipboardList className="w-4 h-4 text-primary" />
+                          {s.module === "enps"
+                            ? <TrendingUp className="w-4 h-4 text-primary" />
+                            : <ClipboardList className="w-4 h-4 text-primary" />
+                          }
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-bold text-[#1e293b] truncate">{s.title}</p>
                           <p className="text-xs text-[#64748b] mt-0.5 line-clamp-1">
-                            {s.description || "Encuesta de clima pendiente"}
+                            {s.description || (s.module === "enps" ? "Encuesta eNPS pendiente" : "Encuesta de clima pendiente")}
                           </p>
                           <p className="text-[10px] font-black text-primary uppercase tracking-wider mt-1">
-                            Pendiente · Clic para responder
+                            {s.module === "enps" ? "eNPS" : "Clima"} · Pendiente · Clic para responder
                           </p>
                         </div>
                         <ChevronRight className="w-4 h-4 text-slate-300 shrink-0 mt-1" />
@@ -173,14 +193,17 @@ export default function Header() {
 
               {/* Pie */}
               {pendingSurveys.length > 0 && (
-                <div className="px-5 py-3 border-t border-slate-100">
-                  <Link
-                    href="/clima"
-                    onClick={() => setShowNotif(false)}
-                    className="block w-full text-center text-xs font-black text-primary hover:underline"
-                  >
-                    Ver todas las encuestas →
-                  </Link>
+                <div className="px-5 py-3 border-t border-slate-100 flex gap-4 justify-center">
+                  {pendingSurveys.some((s) => s.module === "clima") && (
+                    <Link href="/clima" onClick={() => setShowNotif(false)} className="text-xs font-black text-primary hover:underline">
+                      Ver Clima →
+                    </Link>
+                  )}
+                  {pendingSurveys.some((s) => s.module === "enps") && (
+                    <Link href="/enps" onClick={() => setShowNotif(false)} className="text-xs font-black text-primary hover:underline">
+                      Ver eNPS →
+                    </Link>
+                  )}
                 </div>
               )}
             </div>

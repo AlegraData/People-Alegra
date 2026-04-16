@@ -1,131 +1,371 @@
 "use client";
 import { useState } from "react";
-import { ArrowLeft, CheckCircle2 } from "lucide-react";
-import type { Survey } from "@/types/clima";
+import { ArrowLeft, ArrowRight, CheckCircle2, Pencil, Send, AlertCircle } from "lucide-react";
+import type { Survey, Question } from "@/types/clima";
 
-interface SurveyTakerProps {
+interface Props {
   survey: Survey;
   onComplete: () => void;
   onCancel: () => void;
 }
 
-export default function SurveyTaker({ survey, onComplete, onCancel }: SurveyTakerProps) {
-  const [answers, setAnswers] = useState<Record<string, string | number>>({});
-  const [submitted, setSubmitted] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+type Phase = "question" | "review" | "done";
 
-  const setAnswer = (questionId: string, value: string | number) => {
-    setAnswers((prev) => ({ ...prev, [questionId]: value }));
-  };
-
-  const handleSubmit = async () => {
-    setError(null);
-    try {
-      const response = await fetch("/api/clima/responses", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        // El employeeId se resuelve en el servidor usando la sesión autenticada
-        body: JSON.stringify({ surveyId: survey.id, answers }),
-      });
-
-      if (response.ok) {
-        setSubmitted(true);
-        setTimeout(() => onComplete(), 2000);
-      } else {
-        const data = await response.json();
-        setError(data.error || "Error al enviar la respuesta.");
-      }
-    } catch {
-      setError("Error de red. Intenta de nuevo.");
-    }
-  };
-
-  if (submitted) {
+// ── Input según tipo de pregunta ──────────────────────────────────────────────
+function QuestionInput({
+  q, value, onChange,
+}: {
+  q: Question;
+  value: string | number | undefined;
+  onChange: (v: string | number) => void;
+}) {
+  if (q.type === "rating") {
+    const min   = q.ratingMin ?? 1;
+    const max   = q.ratingMax ?? 5;
+    const steps = Array.from({ length: max - min + 1 }, (_, k) => k + min);
     return (
-      <div className="bg-white rounded-[2rem] p-12 border border-slate-100 shadow-sm text-center max-w-2xl mx-auto flex flex-col items-center">
-        <CheckCircle2 className="w-16 h-16 text-success mb-6" />
-        <h3 className="text-2xl font-bold text-[#1e293b] mb-2">¡Gracias por tu participación!</h3>
-        <p className="text-[#64748b]">Tus respuestas nos ayudan a mejorar la cultura.</p>
+      <div>
+        <div className="flex flex-wrap gap-2 justify-center">
+          {steps.map((num) => (
+            <button
+              key={num}
+              onClick={() => onChange(num)}
+              className={`w-12 h-12 rounded-xl font-bold text-lg transition-all duration-200 ${
+                value === num
+                  ? "bg-primary text-white scale-110 shadow-lg shadow-primary/30"
+                  : "bg-slate-100 text-[#64748b] hover:bg-slate-200 hover:scale-105"
+              }`}
+            >
+              {num}
+            </button>
+          ))}
+        </div>
+        {steps.length > 5 && (
+          <div className="flex justify-between mt-2 px-1">
+            <span className="text-xs text-[#94a3b8]">{min} — Nada probable</span>
+            <span className="text-xs text-[#94a3b8]">{max} — Muy probable</span>
+          </div>
+        )}
       </div>
     );
   }
 
-  return (
-    <div className="bg-white rounded-[2rem] p-8 border border-slate-100 shadow-sm max-w-2xl mx-auto">
-      <button
-        onClick={onCancel}
-        className="text-xs font-bold text-[#64748b] hover:text-[#1e293b] mb-8 flex items-center gap-1"
-      >
-        <ArrowLeft className="w-3 h-3" /> Volver
-      </button>
-
-      <h3 className="text-2xl font-bold text-[#1e293b] mb-2">{survey.title}</h3>
-      <p className="text-[#64748b] mb-8">{survey.description}</p>
-
-      <div className="space-y-8">
-        {survey.questions.map((q, i) => (
-          <div key={q.id}>
-            <p className="font-bold text-[#1e293b] mb-4">
-              {i + 1}. {q.text}
-            </p>
-
-            {q.type === "rating" && (
-              <div className="flex gap-2">
-                {[1, 2, 3, 4, 5].map((num) => (
-                  <button
-                    key={num}
-                    onClick={() => setAnswer(q.id, num)}
-                    className={`w-10 h-10 rounded-xl font-bold transition-all ${
-                      answers[q.id] === num
-                        ? "bg-primary text-white"
-                        : "bg-slate-100 text-[#64748b] hover:bg-slate-200"
-                    }`}
-                  >
-                    {num}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {q.type === "boolean" && (
-              <div className="flex gap-2">
-                {["Sí", "No"].map((opt) => (
-                  <button
-                    key={opt}
-                    onClick={() => setAnswer(q.id, opt)}
-                    className={`px-6 py-2 rounded-xl font-bold transition-all ${
-                      answers[q.id] === opt
-                        ? "bg-primary text-white"
-                        : "bg-slate-100 text-[#64748b] hover:bg-slate-200"
-                    }`}
-                  >
-                    {opt}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {q.type === "text" && (
-              <textarea
-                onChange={(e) => setAnswer(q.id, e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 outline-none focus:border-primary transition-colors min-h-[100px]"
-                placeholder="Respuesta..."
-              />
-            )}
-          </div>
+  if (q.type === "boolean") {
+    return (
+      <div className="flex gap-3 justify-center">
+        {["Sí", "No"].map((opt) => (
+          <button
+            key={opt}
+            onClick={() => onChange(opt)}
+            className={`px-12 py-3.5 rounded-xl font-bold text-lg transition-all duration-200 ${
+              value === opt
+                ? "bg-primary text-white scale-105 shadow-lg shadow-primary/30"
+                : "bg-slate-100 text-[#64748b] hover:bg-slate-200 hover:scale-105"
+            }`}
+          >
+            {opt}
+          </button>
         ))}
       </div>
+    );
+  }
 
-      {error && (
-        <p className="mt-6 text-sm text-error font-semibold">{error}</p>
-      )}
+  if (q.type === "choice") {
+    return (
+      <div className="flex flex-col gap-2 max-w-sm mx-auto w-full">
+        {(q.options ?? []).filter((o) => o.trim()).map((opt) => (
+          <button
+            key={opt}
+            onClick={() => onChange(opt)}
+            className={`flex items-center gap-3 px-5 py-3.5 rounded-xl text-sm font-semibold text-left transition-all duration-200 border-2 ${
+              value === opt
+                ? "bg-primary/10 border-primary text-primary scale-[1.02]"
+                : "bg-slate-50 border-slate-200 text-[#64748b] hover:border-slate-300 hover:bg-slate-100"
+            }`}
+          >
+            <span
+              className={`w-5 h-5 rounded-full border-2 shrink-0 flex items-center justify-center transition-all ${
+                value === opt ? "border-primary" : "border-slate-300"
+              }`}
+            >
+              {value === opt && <span className="w-2.5 h-2.5 rounded-full bg-primary" />}
+            </span>
+            {opt}
+          </button>
+        ))}
+      </div>
+    );
+  }
 
-      <div className="mt-12 pt-6 border-t border-slate-100 flex justify-end">
+  // text
+  return (
+    <textarea
+      value={(value as string) ?? ""}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl p-4 outline-none focus:border-primary transition-colors min-h-[120px] text-sm resize-none"
+      placeholder="Escribe tu respuesta aquí..."
+    />
+  );
+}
+
+// ── Etiqueta de respuesta en pantalla de revisión ─────────────────────────────
+function AnswerLabel({ value }: { value: string | number | undefined }) {
+  if (value === undefined || value === "") {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-amber-600 font-bold">
+        <AlertCircle className="w-3 h-3" />
+        Sin respuesta
+      </span>
+    );
+  }
+  return <span className="text-sm font-bold text-primary">{String(value)}</span>;
+}
+
+// ── Componente principal ──────────────────────────────────────────────────────
+export default function SurveyTaker({ survey, onComplete, onCancel }: Props) {
+  const questions                       = survey.questions as Question[];
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [answers, setAnswers]           = useState<Record<string, string | number>>({});
+  const [phase, setPhase]               = useState<Phase>("question");
+  const [error, setError]               = useState<string | null>(null);
+  const [submitting, setSubmitting]     = useState(false);
+  const [visible, setVisible]           = useState(true);
+
+  const currentQ = questions[currentIndex];
+  const progress = ((currentIndex + 1) / questions.length) * 100;
+
+  const setAnswer = (qId: string, v: string | number) =>
+    setAnswers((prev) => ({ ...prev, [qId]: v }));
+
+  // Fade suave entre preguntas
+  const transition = (fn: () => void) => {
+    setVisible(false);
+    setTimeout(() => { fn(); setVisible(true); }, 180);
+  };
+
+  const goNext = () =>
+    transition(() =>
+      currentIndex < questions.length - 1
+        ? setCurrentIndex((i) => i + 1)
+        : setPhase("review")
+    );
+
+  const goPrev = () => {
+    if (currentIndex > 0) transition(() => setCurrentIndex((i) => i - 1));
+  };
+
+  const goToQuestion = (idx: number) =>
+    transition(() => { setCurrentIndex(idx); setPhase("question"); });
+
+  const handleSubmit = async () => {
+    setError(null);
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/clima/responses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ surveyId: survey.id, answers }),
+      });
+      if (res.ok) {
+        setPhase("done");
+        setTimeout(() => onComplete(), 2500);
+      } else {
+        const data = await res.json();
+        setError(data.error || "Error al enviar.");
+      }
+    } catch {
+      setError("Error de red. Intenta de nuevo.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // ── Pantalla de éxito ─────────────────────────────────────────────────────
+  if (phase === "done") {
+    return (
+      <div className="max-w-2xl mx-auto">
+        <div className="relative bg-white rounded-[2rem] p-14 border border-slate-100 shadow-sm text-center flex flex-col items-center overflow-hidden">
+          {/* Fondo decorativo */}
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-64 bg-primary/10 rounded-full blur-3xl pointer-events-none" />
+          <CheckCircle2 className="relative w-16 h-16 text-primary mb-6" />
+          <h3 className="relative text-2xl font-bold text-[#1e293b] mb-2">¡Gracias por tu participación!</h3>
+          <p className="relative text-[#64748b]">Tus respuestas nos ayudan a mejorar la cultura.</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Pantalla de revisión ──────────────────────────────────────────────────
+  if (phase === "review") {
+    return (
+      <div className="max-w-2xl mx-auto space-y-4">
+        <div className="bg-white rounded-[2rem] p-8 border border-slate-100 shadow-sm">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => transition(() => { setPhase("question"); })}
+              className="p-2 hover:bg-slate-100 rounded-full transition-colors"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div>
+              <h3 className="text-xl font-bold text-[#1e293b]">Revisa tus respuestas</h3>
+              <p className="text-sm text-[#64748b]">Puedes editar cualquier respuesta antes de enviar</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-2.5">
+          {questions.map((q, idx) => (
+            <div
+              key={q.id}
+              className="bg-white rounded-2xl border border-slate-100 shadow-sm px-6 py-4 flex items-center justify-between gap-4 hover:border-slate-200 transition-colors"
+            >
+              <div className="flex items-start gap-3 min-w-0">
+                <span className="bg-slate-100 text-[#64748b] font-black w-7 h-7 rounded-lg flex items-center justify-center text-xs shrink-0 mt-0.5">
+                  {idx + 1}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-[#1e293b] leading-snug truncate">
+                    {q.text || "(Sin pregunta)"}
+                  </p>
+                  <div className="mt-1.5">
+                    <AnswerLabel value={answers[q.id]} />
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => goToQuestion(idx)}
+                className="flex items-center gap-1.5 text-xs font-bold text-[#64748b] hover:text-primary px-3 py-2 rounded-xl hover:bg-primary/10 transition-all shrink-0"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                Editar
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {error && (
+          <p className="text-sm text-red-600 font-semibold bg-red-50 px-4 py-3 rounded-xl border border-red-200">
+            {error}
+          </p>
+        )}
+
+        <div className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm flex justify-end">
+          <button
+            onClick={handleSubmit}
+            disabled={submitting}
+            className="flex items-center gap-2 bg-primary text-white px-8 py-3 rounded-xl font-bold hover:shadow-lg hover:shadow-primary/20 transition-all disabled:opacity-50"
+          >
+            {submitting
+              ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              : <Send className="w-4 h-4" />
+            }
+            {submitting ? "Enviando..." : "Enviar respuestas"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Tarjeta de pregunta ───────────────────────────────────────────────────
+  return (
+    <div className="max-w-2xl mx-auto space-y-5">
+      {/* Header: volver + título + progreso numérico */}
+      <div className="flex items-center gap-3">
         <button
-          onClick={handleSubmit}
-          className="bg-[#1e293b] text-white px-8 py-3 rounded-xl font-bold hover:bg-primary transition-all"
+          onClick={onCancel}
+          className="p-2 hover:bg-slate-100 rounded-full transition-colors text-[#64748b]"
         >
-          Enviar Respuestas
+          <ArrowLeft className="w-5 h-5" />
+        </button>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-bold text-[#1e293b] truncate">{survey.title}</p>
+          <p className="text-xs text-[#64748b]">
+            Pregunta {currentIndex + 1} de {questions.length}
+          </p>
+        </div>
+      </div>
+
+      {/* Barra de progreso */}
+      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+        <div
+          className="h-full bg-primary rounded-full transition-all duration-500"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+
+      {/* Tarjeta con efecto glow */}
+      <div
+        className={`relative group/card transition-opacity duration-[180ms] ${
+          visible ? "opacity-100" : "opacity-0"
+        }`}
+      >
+        {/* Blob izquierdo */}
+        <div className="absolute -left-10 top-1/3 w-40 h-40 bg-[#00D6BC]/25 rounded-full blur-3xl opacity-0 group-hover/card:opacity-100 transition-all duration-700 pointer-events-none" />
+        {/* Blob derecho */}
+        <div className="absolute -right-10 bottom-1/3 w-40 h-40 bg-[#00D6BC]/20 rounded-full blur-3xl opacity-0 group-hover/card:opacity-100 transition-all duration-700 pointer-events-none" />
+
+        <div className="relative bg-white rounded-[2rem] px-10 py-12 border border-slate-100 shadow-sm">
+          {/* Texto de la pregunta */}
+          <p className="text-xl font-bold text-[#1e293b] mb-10 leading-snug text-center">
+            {currentQ.text || (
+              <span className="text-slate-400 italic">Sin texto</span>
+            )}
+          </p>
+
+          {/* Input */}
+          <QuestionInput
+            q={currentQ}
+            value={answers[currentQ.id]}
+            onChange={(v) => setAnswer(currentQ.id, v)}
+          />
+
+          {/* Hint */}
+          {answers[currentQ.id] === undefined && (
+            <p className="text-center text-xs text-[#94a3b8] mt-6">
+              Selecciona una opción — o avanza sin responder
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Navegación */}
+      <div className="flex items-center justify-between">
+        {/* Anterior */}
+        <button
+          onClick={goPrev}
+          disabled={currentIndex === 0}
+          className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm text-[#64748b] border border-slate-200 hover:bg-slate-50 transition-all disabled:opacity-30"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Anterior
+        </button>
+
+        {/* Dots */}
+        <div className="flex items-center gap-1.5">
+          {questions.map((_, idx) => (
+            <button
+              key={idx}
+              onClick={() => transition(() => setCurrentIndex(idx))}
+              title={`Pregunta ${idx + 1}`}
+              className={`rounded-full transition-all duration-300 ${
+                idx === currentIndex
+                  ? "w-6 h-2.5 bg-primary"
+                  : answers[questions[idx].id] !== undefined
+                  ? "w-2.5 h-2.5 bg-primary/40 hover:bg-primary/70"
+                  : "w-2.5 h-2.5 bg-slate-200 hover:bg-slate-300"
+              }`}
+            />
+          ))}
+        </div>
+
+        {/* Siguiente / Revisar */}
+        <button
+          onClick={goNext}
+          className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm bg-[#1e293b] text-white hover:bg-primary transition-all"
+        >
+          {currentIndex === questions.length - 1 ? "Revisar" : "Siguiente"}
+          <ArrowRight className="w-4 h-4" />
         </button>
       </div>
     </div>

@@ -36,6 +36,8 @@ model Employee {
 
   personalInfo      EmployeePersonalInfo[]
   climateResponses  ClimateSurveyResponse[]
+  enpsAssignments   EnpsSurveyAssignment[]
+  enpsResponses     EnpsSurveyResponse[]
 
   @@map("employees")
 }
@@ -84,11 +86,58 @@ model ClimateSurveyResponse {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   surveyId    String   @map("survey_id") @db.Uuid
   employeeId  String   @map("employee_id") @db.Uuid
-  answers     Json     
+  answers     Json
   submittedAt DateTime @default(now()) @map("submitted_at")
 
   survey      ClimateSurvey @relation(fields: [surveyId], references: [id])
   employee    Employee      @relation(fields: [employeeId], references: [id])
 
   @@map("climate_survey_responses")
+}
+
+// ── eNPS ─────────────────────────────────────────────────────────────────────
+
+model EnpsSurvey {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title            String
+  description      String?
+  followUpQuestion String?   @map("follow_up_question")
+  isActive         Boolean   @default(true) @map("is_active")
+  scoreMin         Int       @default(0)  @map("score_min")
+  scoreMax         Int       @default(10) @map("score_max")
+  scoreLabels      Json?     @map("score_labels")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  assignments      EnpsSurveyAssignment[]
+  responses        EnpsSurveyResponse[]
+
+  @@map("enps_surveys")
+}
+
+model EnpsSurveyAssignment {
+  surveyId    String    @map("survey_id") @db.Uuid
+  employeeId  String    @map("employee_id") @db.Uuid
+  assignedAt  DateTime  @default(now()) @map("assigned_at")
+  completedAt DateTime? @map("completed_at")
+
+  survey   EnpsSurvey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  employee Employee   @relation(fields: [employeeId], references: [id])
+
+  @@id([surveyId, employeeId])
+  @@map("enps_survey_assignments")
+}
+
+model EnpsSurveyResponse {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  surveyId       String   @map("survey_id") @db.Uuid
+  employeeId     String   @map("employee_id") @db.Uuid
+  score          Int
+  followUpAnswer String?  @map("follow_up_answer")
+  submittedAt    DateTime @default(now()) @map("submitted_at")
+
+  survey   EnpsSurvey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  employee Employee   @relation(fields: [employeeId], references: [id])
+
+  @@unique([surveyId, employeeId])
+  @@map("enps_survey_responses")
 }

@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import { ClipboardList, Download, Plus, Pencil, Trash2, Users2 } from "lucide-react";
+import { ClipboardList, Download, Plus, Pencil, Trash2, Users2, Lock, Unlock } from "lucide-react";
 import type { Survey } from "@/types/clima";
 
 interface AdminListProps {
@@ -10,6 +10,7 @@ interface AdminListProps {
   onViewResults: (survey: Survey) => void;
   onManageParticipants: (survey: Survey) => void;
   onDelete: (id: string) => void;
+  onToggleStatus: (id: string, currentIsActive: boolean) => void;
 }
 
 function CompletionBadge({ responses, assignments }: { responses: number; assignments: number }) {
@@ -30,7 +31,7 @@ function CompletionBadge({ responses, assignments }: { responses: number; assign
 }
 
 export default function AdminList({
-  surveys, onCreate, onEdit, onViewResults, onManageParticipants, onDelete,
+  surveys, onCreate, onEdit, onViewResults, onManageParticipants, onDelete, onToggleStatus,
 }: AdminListProps) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
@@ -72,6 +73,7 @@ export default function AdminList({
             <tr className="border-b border-slate-100 text-[10px] uppercase tracking-widest text-[#64748b] font-black">
               <th className="pb-4">Nombre</th>
               <th className="pb-4">Participación</th>
+              <th className="pb-4">Fecha Lanzada</th>
               <th className="pb-4">Estado</th>
               <th className="pb-4 text-right">Acciones</th>
             </tr>
@@ -84,6 +86,11 @@ export default function AdminList({
                   <td className="py-4 font-bold text-[#1e293b]">{s.title}</td>
                   <td className="py-4">
                     <CompletionBadge responses={s.responsesCount} assignments={s.assignmentsCount} />
+                  </td>
+                  <td className="py-4 text-xs text-[#64748b] whitespace-nowrap">
+                    {s.createdAt
+                      ? new Date(s.createdAt).toLocaleDateString("es-CO", { year: "numeric", month: "short", day: "numeric" })
+                      : "—"}
                   </td>
                   <td className="py-4">
                     <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase ${
@@ -118,6 +125,18 @@ export default function AdminList({
                       >
                         <Download className="w-4 h-4" />
                       </button>
+                      {/* Finalizar / Reabrir */}
+                      <button
+                        onClick={() => onToggleStatus(s.id, s.isActive)}
+                        title={s.isActive ? "Finalizar encuesta (ya no estará disponible)" : "Reabrir para pendientes"}
+                        className={`p-2 rounded-lg border border-transparent transition-all ${
+                          s.isActive
+                            ? "text-amber-500 hover:bg-amber-50 hover:border-amber-200"
+                            : "text-emerald-600 hover:bg-emerald-50 hover:border-emerald-200"
+                        }`}
+                      >
+                        {s.isActive ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                      </button>
                       {/* Eliminar con confirmación */}
                       <button
                         onClick={() => handleDeleteClick(s.id)}
@@ -141,7 +160,7 @@ export default function AdminList({
             })}
             {surveys.length === 0 && (
               <tr>
-                <td colSpan={4} className="py-12 text-center text-[#64748b]">
+                <td colSpan={5} className="py-12 text-center text-[#64748b]">
                   No hay encuestas creadas aún.
                 </td>
               </tr>

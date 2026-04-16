@@ -122,6 +122,31 @@ export default function ClimaPage() {
     }
   };
 
+  // ── Finalizar / Reabrir encuesta ─────────────────────────────────────────
+  const handleToggleStatus = async (id: string, currentIsActive: boolean) => {
+    const action = currentIsActive ? "finalizar" : "reabrir";
+    const msg = currentIsActive
+      ? "¿Finalizar esta encuesta? Ya no estará disponible para los participantes."
+      : "¿Reabrir esta encuesta? Estará disponible para quienes aún no hayan respondido.";
+    if (!confirm(msg)) return;
+    try {
+      const res = await fetch(`/api/clima/surveys/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive: !currentIsActive }),
+      });
+      if (res.ok) {
+        setSurveys((prev) =>
+          prev.map((s) => s.id === id ? { ...s, isActive: !currentIsActive } : s)
+        );
+      } else {
+        alert(`Error al ${action} la encuesta.`);
+      }
+    } catch {
+      alert(`Error de red al ${action} la encuesta.`);
+    }
+  };
+
   // ── Redirige onSave al handler correcto según el viewState ───────────────
   const handleSave = (formData: SurveyFormData) => {
     if (viewState === "edit") handleUpdateSurvey(formData);
@@ -197,6 +222,7 @@ export default function ClimaPage() {
               onViewResults={(s) => { setActiveSurvey(s); setViewState("results"); }}
               onManageParticipants={(s) => { setActiveSurvey(s); setViewState("participants"); }}
               onDelete={handleDeleteSurvey}
+              onToggleStatus={handleToggleStatus}
             />
           )}
           {effectiveRole === "manager" && (
