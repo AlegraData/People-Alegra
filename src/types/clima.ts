@@ -5,6 +5,7 @@ export interface Question {
   id: string;
   text: string;
   type: QuestionType;
+  required?: boolean;
   // rating: rango configurable (default 1-5)
   ratingMin?: number;
   ratingMax?: number;

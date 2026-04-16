@@ -72,25 +72,23 @@ function QuestionInput({
 
   if (q.type === "choice") {
     return (
-      <div className="flex flex-col gap-2 max-w-sm mx-auto w-full">
-        {(q.options ?? []).filter((o) => o.trim()).map((opt) => (
+      <div className="flex flex-wrap gap-3 w-full">
+        {(q.options ?? []).filter((o) => o.trim()).map((opt, idx) => (
           <button
             key={opt}
             onClick={() => onChange(opt)}
-            className={`flex items-center gap-3 px-5 py-3.5 rounded-xl text-sm font-semibold text-left transition-all duration-200 border-2 ${
+            className={`flex-1 min-w-[80px] flex flex-col items-center gap-3 px-4 py-5 rounded-xl border-2 transition-all duration-200 ${
               value === opt
-                ? "bg-primary/10 border-primary text-primary scale-[1.02]"
-                : "bg-slate-50 border-slate-200 text-[#64748b] hover:border-slate-300 hover:bg-slate-100"
+                ? "bg-primary/10 border-primary text-primary"
+                : "bg-slate-50 border-slate-200 text-[#64748b] hover:border-primary/40 hover:bg-slate-100"
             }`}
           >
-            <span
-              className={`w-5 h-5 rounded-full border-2 shrink-0 flex items-center justify-center transition-all ${
-                value === opt ? "border-primary" : "border-slate-300"
-              }`}
-            >
-              {value === opt && <span className="w-2.5 h-2.5 rounded-full bg-primary" />}
+            <span className={`w-9 h-9 rounded-xl flex items-center justify-center text-sm font-black shrink-0 transition-all ${
+              value === opt ? "bg-primary text-white" : "bg-slate-200 text-[#64748b]"
+            }`}>
+              {idx + 1}
             </span>
-            {opt}
+            <span className="text-xs font-semibold text-center leading-snug">{opt}</span>
           </button>
         ))}
       </div>
@@ -109,12 +107,12 @@ function QuestionInput({
 }
 
 // ── Etiqueta de respuesta en pantalla de revisión ─────────────────────────────
-function AnswerLabel({ value }: { value: string | number | undefined }) {
+function AnswerLabel({ value, required }: { value: string | number | undefined; required?: boolean }) {
   if (value === undefined || value === "") {
     return (
-      <span className="inline-flex items-center gap-1 text-xs text-amber-600 font-bold">
+      <span className={`inline-flex items-center gap-1 text-xs font-bold ${required ? "text-red-500" : "text-amber-600"}`}>
         <AlertCircle className="w-3 h-3" />
-        Sin respuesta
+        {required ? "Obligatoria — falta responder" : "Sin respuesta"}
       </span>
     );
   }
@@ -130,12 +128,15 @@ export default function SurveyTaker({ survey, onComplete, onCancel }: Props) {
   const [error, setError]               = useState<string | null>(null);
   const [submitting, setSubmitting]     = useState(false);
   const [visible, setVisible]           = useState(true);
+  const [highlightMissing, setHighlightMissing] = useState<Set<string>>(new Set());
 
   const currentQ = questions[currentIndex];
   const progress = ((currentIndex + 1) / questions.length) * 100;
 
-  const setAnswer = (qId: string, v: string | number) =>
+  const setAnswer = (qId: string, v: string | number) => {
     setAnswers((prev) => ({ ...prev, [qId]: v }));
+    setHighlightMissing((prev) => { const next = new Set(prev); next.delete(qId); return next; });
+  };
 
   // Fade suave entre preguntas
   const transition = (fn: () => void) => {
@@ -158,6 +159,18 @@ export default function SurveyTaker({ survey, onComplete, onCancel }: Props) {
     transition(() => { setCurrentIndex(idx); setPhase("question"); });
 
   const handleSubmit = async () => {
+    // Validate required questions
+    const unanswered = questions.filter(
+      (q) => q.required && (answers[q.id] === undefined || answers[q.id] === "")
+    );
+    if (unanswered.length > 0) {
+      setHighlightMissing(new Set(unanswered.map((q) => q.id)));
+      setError(
+        `Hay ${unanswered.length} pregunta${unanswered.length > 1 ? "s" : ""} obligatoria${unanswered.length > 1 ? "s" : ""} sin responder.`
+      );
+      return;
+    }
+
     setError(null);
     setSubmitting(true);
     try {
@@ -215,33 +228,47 @@ export default function SurveyTaker({ survey, onComplete, onCancel }: Props) {
         </div>
 
         <div className="space-y-2.5">
-          {questions.map((q, idx) => (
-            <div
-              key={q.id}
-              className="bg-white rounded-2xl border border-slate-100 shadow-sm px-6 py-4 flex items-center justify-between gap-4 hover:border-slate-200 transition-colors"
-            >
-              <div className="flex items-start gap-3 min-w-0">
-                <span className="bg-slate-100 text-[#64748b] font-black w-7 h-7 rounded-lg flex items-center justify-center text-xs shrink-0 mt-0.5">
-                  {idx + 1}
-                </span>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-[#1e293b] leading-snug truncate">
-                    {q.text || "(Sin pregunta)"}
-                  </p>
-                  <div className="mt-1.5">
-                    <AnswerLabel value={answers[q.id]} />
+          {questions.map((q, idx) => {
+            const isMissing = highlightMissing.has(q.id);
+            return (
+              <div
+                key={q.id}
+                className={`rounded-2xl shadow-sm px-6 py-4 flex items-center justify-between gap-4 transition-all ${
+                  isMissing
+                    ? "bg-red-50 border-2 border-red-400 animate-pulse"
+                    : "bg-white border border-slate-100 hover:border-slate-200"
+                }`}
+              >
+                <div className="flex items-start gap-3 min-w-0">
+                  <span className={`font-black w-7 h-7 rounded-lg flex items-center justify-center text-xs shrink-0 mt-0.5 ${
+                    isMissing ? "bg-red-100 text-red-500" : "bg-slate-100 text-[#64748b]"
+                  }`}>
+                    {idx + 1}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-semibold text-[#1e293b] leading-snug truncate">
+                        {q.text || "(Sin pregunta)"}
+                      </p>
+                      {q.required && (
+                        <span className="text-[10px] font-bold text-red-500 uppercase shrink-0">* Obligatoria</span>
+                      )}
+                    </div>
+                    <div className="mt-1.5">
+                      <AnswerLabel value={answers[q.id]} required={q.required} />
+                    </div>
                   </div>
                 </div>
+                <button
+                  onClick={() => goToQuestion(idx)}
+                  className="flex items-center gap-1.5 text-xs font-bold text-[#64748b] hover:text-primary px-3 py-2 rounded-xl hover:bg-primary/10 transition-all shrink-0"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  Editar
+                </button>
               </div>
-              <button
-                onClick={() => goToQuestion(idx)}
-                className="flex items-center gap-1.5 text-xs font-bold text-[#64748b] hover:text-primary px-3 py-2 rounded-xl hover:bg-primary/10 transition-all shrink-0"
-              >
-                <Pencil className="w-3.5 h-3.5" />
-                Editar
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {error && (
@@ -307,11 +334,18 @@ export default function SurveyTaker({ survey, onComplete, onCancel }: Props) {
 
         <div className="relative bg-white rounded-[2rem] px-10 py-12 border border-slate-100 shadow-sm">
           {/* Texto de la pregunta */}
-          <p className="text-xl font-bold text-[#1e293b] mb-10 leading-snug text-center">
-            {currentQ.text || (
-              <span className="text-slate-400 italic">Sin texto</span>
+          <div className="mb-10 text-center">
+            <p className="text-xl font-bold text-[#1e293b] leading-snug">
+              {currentQ.text || (
+                <span className="text-slate-400 italic">Sin texto</span>
+              )}
+            </p>
+            {currentQ.required && (
+              <span className="inline-block mt-2 text-[10px] font-black uppercase text-red-500 bg-red-50 px-2 py-0.5 rounded-md">
+                * Obligatoria
+              </span>
             )}
-          </p>
+          </div>
 
           {/* Input */}
           <QuestionInput
@@ -322,8 +356,10 @@ export default function SurveyTaker({ survey, onComplete, onCancel }: Props) {
 
           {/* Hint */}
           {answers[currentQ.id] === undefined && (
-            <p className="text-center text-xs text-[#94a3b8] mt-6">
-              Selecciona una opción — o avanza sin responder
+            <p className={`text-center text-xs mt-6 ${currentQ.required ? "text-red-400 font-semibold" : "text-[#94a3b8]"}`}>
+              {currentQ.required
+                ? "* Esta pregunta es obligatoria"
+                : "Selecciona una opción — o avanza sin responder"}
             </p>
           )}
         </div>

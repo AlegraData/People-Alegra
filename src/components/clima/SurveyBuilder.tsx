@@ -212,10 +212,21 @@ export default function SurveyBuilder({ onSave, onCancel, initialData }: SurveyB
                     placeholder="Escribe tu pregunta..."
                   />
 
-                  {/* Badge del tipo */}
-                  <span className="text-[10px] font-bold uppercase text-primary bg-[#00D6BC]/10 px-2 py-1 rounded-md">
-                    {questionLabel(q)}
-                  </span>
+                  {/* Badge del tipo + toggle obligatoria */}
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <span className="text-[10px] font-bold uppercase text-primary bg-[#00D6BC]/10 px-2 py-1 rounded-md">
+                      {questionLabel(q)}
+                    </span>
+                    <label className="inline-flex items-center gap-1.5 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={q.required ?? false}
+                        onChange={(e) => patchQuestion(q.id, { required: e.target.checked })}
+                        className="w-3.5 h-3.5 accent-primary rounded"
+                      />
+                      <span className="text-[10px] font-bold uppercase text-[#64748b]">Obligatoria</span>
+                    </label>
+                  </div>
 
                   {/* ── Opciones de Calificación ── */}
                   {q.type === "rating" && (
