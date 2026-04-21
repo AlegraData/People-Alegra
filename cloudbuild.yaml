@@ -1,13 +1,17 @@
 steps:
-  # 1. Build de la imagen Docker (con variables públicas como build args)
+  # 1. Build de la imagen Docker
   - name: 'gcr.io/cloud-builders/docker'
-    entrypoint: 'bash'
     args:
-      - '-c'
-      - 'docker build --build-arg NEXT_PUBLIC_SUPABASE_URL=$$NEXT_PUBLIC_SUPABASE_URL --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY=$$NEXT_PUBLIC_SUPABASE_ANON_KEY -t us-east1-docker.pkg.dev/$PROJECT_ID/people-hub/app:$COMMIT_SHA -t us-east1-docker.pkg.dev/$PROJECT_ID/people-hub/app:latest .'
-    secretEnv:
-      - NEXT_PUBLIC_SUPABASE_URL
-      - NEXT_PUBLIC_SUPABASE_ANON_KEY
+      - 'build'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_SUPABASE_URL=${_NEXT_PUBLIC_SUPABASE_URL}'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_SUPABASE_ANON_KEY=${_NEXT_PUBLIC_SUPABASE_ANON_KEY}'
+      - '-t'
+      - 'us-east1-docker.pkg.dev/$PROJECT_ID/people-hub/app:$COMMIT_SHA'
+      - '-t'
+      - 'us-east1-docker.pkg.dev/$PROJECT_ID/people-hub/app:latest'
+      - '.'
 
   # 2. Push de la imagen
   - name: 'gcr.io/cloud-builders/docker'
@@ -36,13 +40,9 @@ steps:
       - '--port=3000'
       - '--set-secrets=DATABASE_URL=DATABASE_URL:latest,DIRECT_URL=DIRECT_URL:latest,NEXT_PUBLIC_SUPABASE_URL=NEXT_PUBLIC_SUPABASE_URL:latest,NEXT_PUBLIC_SUPABASE_ANON_KEY=NEXT_PUBLIC_SUPABASE_ANON_KEY:latest,SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest'
 
-# Leer variables públicas desde Secret Manager durante el build
-availableSecrets:
-  secretManager:
-    - versionName: projects/$PROJECT_ID/secrets/NEXT_PUBLIC_SUPABASE_URL/versions/latest
-      env: NEXT_PUBLIC_SUPABASE_URL
-    - versionName: projects/$PROJECT_ID/secrets/NEXT_PUBLIC_SUPABASE_ANON_KEY/versions/latest
-      env: NEXT_PUBLIC_SUPABASE_ANON_KEY
+substitutions:
+  _NEXT_PUBLIC_SUPABASE_URL: ''
+  _NEXT_PUBLIC_SUPABASE_ANON_KEY: ''
 
 options:
   logging: CLOUD_LOGGING_ONLY
