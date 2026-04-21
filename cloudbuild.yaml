@@ -1,0 +1,40 @@
+steps:
+  # 1. Build de la imagen Docker
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'us-east1-docker.pkg.dev/$PROJECT_ID/people-hub/app:$COMMIT_SHA'
+      - '-t'
+      - 'us-east1-docker.pkg.dev/$PROJECT_ID/people-hub/app:latest'
+      - '.'
+
+  # 2. Push de la imagen
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '--all-tags'
+      - 'us-east1-docker.pkg.dev/$PROJECT_ID/people-hub/app'
+
+  # 3. Deploy a Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'people-hub'
+      - '--image=us-east1-docker.pkg.dev/$PROJECT_ID/people-hub/app:$COMMIT_SHA'
+      - '--region=us-east1'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--min-instances=1'
+      - '--max-instances=10'
+      - '--cpu=1'
+      - '--memory=1Gi'
+      - '--concurrency=80'
+      - '--timeout=60s'
+      - '--port=3000'
+      - '--set-secrets=DATABASE_URL=DATABASE_URL:latest,DIRECT_URL=DIRECT_URL:latest,NEXT_PUBLIC_SUPABASE_URL=NEXT_PUBLIC_SUPABASE_URL:latest,NEXT_PUBLIC_SUPABASE_ANON_KEY=NEXT_PUBLIC_SUPABASE_ANON_KEY:latest,SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
