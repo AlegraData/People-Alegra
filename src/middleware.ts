@@ -3,6 +3,20 @@ import { NextResponse, type NextRequest } from "next/server";
 
 const PUBLIC_ROUTES = ["/login", "/auth/callback"];
 
+// Cuando el app corre detrás de un proxy (Cloud Run, Vercel, etc.),
+// request.nextUrl.origin puede ser la dirección interna (0.0.0.0:3000).
+// Usamos x-forwarded-host / x-forwarded-proto para obtener la URL pública real.
+function getPublicOrigin(request: NextRequest): string {
+  const host =
+    request.headers.get("x-forwarded-host") ??
+    request.headers.get("host") ??
+    request.nextUrl.host;
+  const proto =
+    request.headers.get("x-forwarded-proto")?.split(",")[0] ??
+    request.nextUrl.protocol.replace(":", "");
+  return `${proto}://${host}`;
+}
+
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
@@ -33,18 +47,15 @@ export async function middleware(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
 
   const { pathname } = request.nextUrl;
+  const origin = getPublicOrigin(request);
 
   // Lógica de Redirección
   if (!user && !PUBLIC_ROUTES.some((r) => pathname.startsWith(r))) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    return NextResponse.redirect(url);
+    return NextResponse.redirect(new URL("/login", origin));
   }
 
   if (user && pathname === "/login") {
-    const url = request.nextUrl.clone();
-    url.pathname = "/";
-    return NextResponse.redirect(url);
+    return NextResponse.redirect(new URL("/", origin));
   }
 
   return supabaseResponse;

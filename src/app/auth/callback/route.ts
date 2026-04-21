@@ -5,7 +5,7 @@ import { supabaseAdmin } from "@/utils/supabase/admin";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
-  const { searchParams, origin } = new URL(request.url);
+  const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
   const next = searchParams.get("next") ?? "/";
 
@@ -65,11 +65,17 @@ export async function GET(request: NextRequest) {
         // Si falla el registro en user_roles no bloqueamos el login
       }
 
-      // Construir una URL absoluta para la redirección segura
-      const redirectUrl = request.nextUrl.clone();
-      redirectUrl.pathname = next;
-      redirectUrl.searchParams.delete("code");
-      redirectUrl.searchParams.delete("next");
+      // Usar x-forwarded-host para obtener la URL pública correcta detrás de proxies
+      const host =
+        request.headers.get("x-forwarded-host") ??
+        request.headers.get("host") ??
+        request.nextUrl.host;
+      const proto =
+        request.headers.get("x-forwarded-proto")?.split(",")[0] ??
+        request.nextUrl.protocol.replace(":", "");
+      const publicOrigin = `${proto}://${host}`;
+
+      const redirectUrl = new URL(next, publicOrigin);
 
       const response = NextResponse.redirect(redirectUrl);
 
@@ -82,5 +88,12 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.redirect(`${origin}/login?error=auth_callback_error`);
+  const host =
+    request.headers.get("x-forwarded-host") ??
+    request.headers.get("host") ??
+    request.nextUrl.host;
+  const proto =
+    request.headers.get("x-forwarded-proto")?.split(",")[0] ??
+    request.nextUrl.protocol.replace(":", "");
+  return NextResponse.redirect(`${proto}://${host}/login?error=auth_callback_error`);
 }
