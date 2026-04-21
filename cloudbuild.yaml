@@ -3,10 +3,6 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
-      - '--build-arg'
-      - 'NEXT_PUBLIC_SUPABASE_URL=${_NEXT_PUBLIC_SUPABASE_URL}'
-      - '--build-arg'
-      - 'NEXT_PUBLIC_SUPABASE_ANON_KEY=${_NEXT_PUBLIC_SUPABASE_ANON_KEY}'
       - '-t'
       - 'us-east1-docker.pkg.dev/$PROJECT_ID/people-hub/app:$COMMIT_SHA'
       - '-t'
@@ -39,10 +35,6 @@ steps:
       - '--timeout=60s'
       - '--port=3000'
       - '--set-secrets=DATABASE_URL=DATABASE_URL:latest,DIRECT_URL=DIRECT_URL:latest,NEXT_PUBLIC_SUPABASE_URL=NEXT_PUBLIC_SUPABASE_URL:latest,NEXT_PUBLIC_SUPABASE_ANON_KEY=NEXT_PUBLIC_SUPABASE_ANON_KEY:latest,SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest'
-
-substitutions:
-  _NEXT_PUBLIC_SUPABASE_URL: ''
-  _NEXT_PUBLIC_SUPABASE_ANON_KEY: ''
 
 options:
   logging: CLOUD_LOGGING_ONLY
