@@ -144,15 +144,24 @@ export default function SurveyTaker({ survey, onComplete, onCancel }: Props) {
     setTimeout(() => { fn(); setVisible(true); }, 180);
   };
 
-  const goNext = () =>
+  const goNext = () => {
+    if (
+      currentQ.required &&
+      (answers[currentQ.id] === undefined || answers[currentQ.id] === "")
+    ) {
+      setError("Esta pregunta es obligatoria. Respóndela antes de continuar.");
+      return;
+    }
+    setError(null);
     transition(() =>
       currentIndex < questions.length - 1
         ? setCurrentIndex((i) => i + 1)
         : setPhase("review")
     );
+  };
 
   const goPrev = () => {
-    if (currentIndex > 0) transition(() => setCurrentIndex((i) => i - 1));
+    if (currentIndex > 0) { setError(null); transition(() => setCurrentIndex((i) => i - 1)); }
   };
 
   const goToQuestion = (idx: number) =>
@@ -173,6 +182,7 @@ export default function SurveyTaker({ survey, onComplete, onCancel }: Props) {
 
     setError(null);
     setSubmitting(true);
+    setHighlightMissing(new Set());
     try {
       const res = await fetch("/api/clima/responses", {
         method: "POST",
@@ -181,7 +191,6 @@ export default function SurveyTaker({ survey, onComplete, onCancel }: Props) {
       });
       if (res.ok) {
         setPhase("done");
-        setTimeout(() => onComplete(), 2500);
       } else {
         const data = await res.json();
         setError(data.error || "Error al enviar.");
@@ -198,11 +207,17 @@ export default function SurveyTaker({ survey, onComplete, onCancel }: Props) {
     return (
       <div className="max-w-2xl mx-auto">
         <div className="relative bg-white rounded-[2rem] p-14 border border-slate-100 shadow-sm text-center flex flex-col items-center overflow-hidden">
-          {/* Fondo decorativo */}
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-64 bg-primary/10 rounded-full blur-3xl pointer-events-none" />
           <CheckCircle2 className="relative w-16 h-16 text-primary mb-6" />
           <h3 className="relative text-2xl font-bold text-[#1e293b] mb-2">¡Gracias por tu participación!</h3>
-          <p className="relative text-[#64748b]">Tus respuestas nos ayudan a mejorar la cultura.</p>
+          <p className="relative text-[#64748b] mb-8">Tus respuestas nos ayudan a mejorar la cultura.</p>
+          <button
+            onClick={onComplete}
+            className="relative flex items-center gap-2 bg-primary text-white px-8 py-3 rounded-xl font-bold hover:shadow-lg hover:shadow-primary/20 transition-all"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Volver al inicio
+          </button>
         </div>
       </div>
     );
@@ -314,11 +329,19 @@ export default function SurveyTaker({ survey, onComplete, onCancel }: Props) {
       </div>
 
       {/* Barra de progreso */}
-      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-        <div
-          className="h-full bg-primary rounded-full transition-all duration-500"
-          style={{ width: `${progress}%` }}
-        />
+      <div className="space-y-1.5">
+        <div className="flex justify-between items-center">
+          <span className="text-xs font-semibold text-[#64748b]">
+            {currentIndex + 1} / {questions.length} preguntas
+          </span>
+          <span className="text-xs font-bold text-primary">{Math.round(progress)}%</span>
+        </div>
+        <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-primary rounded-full transition-all duration-500"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
       </div>
 
       {/* Tarjeta con efecto glow */}
@@ -364,6 +387,13 @@ export default function SurveyTaker({ survey, onComplete, onCancel }: Props) {
           )}
         </div>
       </div>
+
+      {/* Error obligatoria */}
+      {error && (
+        <p className="text-sm text-red-600 font-semibold bg-red-50 px-4 py-3 rounded-xl border border-red-200 text-center">
+          {error}
+        </p>
+      )}
 
       {/* Navegación */}
       <div className="flex items-center justify-between">
