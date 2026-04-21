@@ -22,11 +22,15 @@ export async function GET(request: Request) {
     }
 
     // Rol global
-    const { data: roleData } = await supabaseAdmin
+    const { data: roleData, error: roleError } = await supabaseAdmin
       .from("user_roles")
       .select("role")
       .eq("user_id", user.id)
       .single();
+
+    if (roleError) {
+      console.error("[GET /api/auth/role] supabaseAdmin error:", roleError);
+    }
 
     const globalRole: Role = roleData?.role ?? "viewer";
 
