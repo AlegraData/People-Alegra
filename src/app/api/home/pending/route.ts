@@ -28,21 +28,34 @@ export async function GET() {
       return NextResponse.json({ pending: [] });
     }
 
-    // Encuestas de clima pendientes (asignadas, sin completar, activas)
-    const { data: climaRaw } = await supabaseAdmin
-      .from("climate_survey_assignments")
-      .select("survey_id, completed_at, climate_surveys(id, title, is_active)")
-      .eq("employee_id", employee.id)
-      .is("completed_at", null);
+    // Encuestas de clima pendientes: misma lógica que el viewer en /api/clima/surveys
+    // Incluye encuestas "abiertas a todos" (sin asignaciones) + las asignadas al empleado
+    const [{ data: myAssignments }, { data: allAssignments }] = await Promise.all([
+      supabaseAdmin.from("climate_survey_assignments").select("survey_id").eq("employee_id", employee.id),
+      supabaseAdmin.from("climate_survey_assignments").select("survey_id"),
+    ]);
 
-    const pendingClima: PendingItem[] = (climaRaw ?? [])
-      .filter((a: any) => a.climate_surveys?.is_active)
-      .map((a: any) => ({
-        id: a.survey_id as string,
-        title: a.climate_surveys.title as string,
-        type: "clima",
-        href: "/clima",
-      }));
+    const myClimaSurveyIds      = new Set((myAssignments  ?? []).map((a) => a.survey_id as string));
+    const idsWithAnyAssignment  = new Set((allAssignments ?? []).map((a) => a.survey_id as string));
+
+    const allActiveClima = await prisma.climateSurvey.findMany({
+      where: { isActive: true },
+      select: { id: true, title: true },
+    });
+
+    const visibleClima = allActiveClima.filter(
+      (s) => !idsWithAnyAssignment.has(s.id) || myClimaSurveyIds.has(s.id)
+    );
+
+    const respondedClima = await prisma.climateSurveyResponse.findMany({
+      where: { employeeId: employee.id, surveyId: { in: visibleClima.map((s) => s.id) } },
+      select: { surveyId: true },
+    });
+    const respondedClimaIds = new Set(respondedClima.map((r) => r.surveyId));
+
+    const pendingClima: PendingItem[] = visibleClima
+      .filter((s) => !respondedClimaIds.has(s.id))
+      .map((s) => ({ id: s.id, title: s.title, type: "clima", href: "/clima" }));
 
     // Encuestas eNPS pendientes (asignadas, sin completar, activas)
     const enpsRaw = await prisma.enpsSurveyAssignment.findMany({
