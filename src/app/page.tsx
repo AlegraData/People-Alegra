@@ -1,8 +1,9 @@
 "use client";
 import { useState, useEffect } from "react";
-import { TrendingUp, MessageSquare, UserRound, ChevronRight, Clock, X } from "lucide-react";
+import { TrendingUp, MessageSquare, UserRound, ChevronRight, Clock, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import { createClient } from "@/utils/supabase/client";
+import type { PendingItem } from "@/app/api/home/pending/route";
 
 const modules = [
   {
@@ -37,9 +38,16 @@ const modules = [
   },
 ];
 
+const typeConfig = {
+  clima: { label: "Clima", color: "bg-blue-50 text-blue-600 border-blue-100", dot: "bg-blue-400" },
+  enps:  { label: "eNPS",  color: "bg-violet-50 text-violet-600 border-violet-100", dot: "bg-violet-400" },
+};
+
 export default function Home() {
   const [comingSoonTitle, setComingSoonTitle] = useState<string | null>(null);
-  const [firstName, setFirstName] = useState<string>("");
+  const [firstName, setFirstName]             = useState<string>("");
+  const [pending, setPending]                 = useState<PendingItem[]>([]);
+  const [loadingPending, setLoadingPending]   = useState(true);
 
   useEffect(() => {
     const supabase = createClient();
@@ -51,9 +59,18 @@ export default function Home() {
     });
   }, []);
 
+  useEffect(() => {
+    fetch("/api/home/pending")
+      .then((r) => r.json())
+      .then((data) => setPending(data.pending ?? []))
+      .catch(() => setPending([]))
+      .finally(() => setLoadingPending(false));
+  }, []);
+
   return (
     <>
-      <div className="mb-12">
+      {/* Saludo */}
+      <div className="mb-10">
         <h2 className="text-4xl font-extrabold text-[#1e293b] mb-3 tracking-tight">
           ¡Hola, {firstName || "Colaborador"}! 👋
         </h2>
@@ -63,6 +80,52 @@ export default function Home() {
         </p>
       </div>
 
+      {/* Encuestas pendientes */}
+      {!loadingPending && pending.length > 0 && (
+        <div className="mb-10">
+          <div className="flex items-center gap-2 mb-4">
+            <AlertCircle className="w-4 h-4 text-amber-500" />
+            <h3 className="text-sm font-bold text-[#1e293b] uppercase tracking-wider">
+              Tienes {pending.length} encuesta{pending.length > 1 ? "s" : ""} pendiente{pending.length > 1 ? "s" : ""}
+            </h3>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {pending.map((item) => {
+              const cfg = typeConfig[item.type];
+              return (
+                <div
+                  key={`${item.type}-${item.id}`}
+                  className="bg-white border border-amber-100 rounded-2xl px-5 py-4 flex items-center justify-between gap-4 shadow-sm hover:border-amber-200 hover:shadow-md transition-all"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className={`relative flex h-2.5 w-2.5 shrink-0`}>
+                      <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${cfg.dot} opacity-60`} />
+                      <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${cfg.dot}`} />
+                    </span>
+                    <div className="min-w-0">
+                      <span className={`inline-block text-[10px] font-black uppercase px-2 py-0.5 rounded-md border mb-1 ${cfg.color}`}>
+                        {cfg.label}
+                      </span>
+                      <p className="text-sm font-semibold text-[#1e293b] truncate leading-snug">
+                        {item.title}
+                      </p>
+                    </div>
+                  </div>
+                  <Link
+                    href={item.href}
+                    className="shrink-0 flex items-center gap-1 text-xs font-bold text-primary hover:underline whitespace-nowrap"
+                  >
+                    Responder
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </Link>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Módulos */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         {modules.map((module, index) => (
           <div
