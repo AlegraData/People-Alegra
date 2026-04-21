@@ -71,13 +71,17 @@ model UserModuleRole {
 }
 
 model ClimateSurvey {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  title       String
-  description String?
-  questions   Json     
-  isActive    Boolean  @default(true) @map("is_active")
-  createdAt   DateTime @default(now()) @map("created_at")
-  
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title          String
+  description    String?
+  questions      Json
+  isActive       Boolean  @default(true)  @map("is_active")
+  introEnabled   Boolean  @default(true)  @map("intro_enabled")
+  introMessage   String?                  @map("intro_message")
+  termsEnabled   Boolean  @default(false) @map("terms_enabled")
+  termsText      String?                  @map("terms_text")
+  createdAt      DateTime @default(now()) @map("created_at")
+
   responses   ClimateSurveyResponse[]
 
   @@map("climate_surveys")

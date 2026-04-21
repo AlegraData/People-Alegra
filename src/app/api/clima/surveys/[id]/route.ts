@@ -28,7 +28,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
 
     const { id } = await params;
     const body = await request.json();
-    const { title, description, questions } = body;
+    const { title, description, questions, introEnabled, introMessage, termsEnabled, termsText } = body;
 
     if (!title?.trim()) {
       return NextResponse.json({ error: "El título es requerido" }, { status: 400 });
@@ -43,6 +43,10 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
         title: title.trim(),
         description: description?.trim() ?? "",
         questions,
+        introEnabled: introEnabled ?? true,
+        introMessage: introMessage?.trim() || null,
+        termsEnabled: termsEnabled ?? false,
+        termsText: termsText?.trim() || null,
       },
     });
 

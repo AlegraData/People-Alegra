@@ -19,10 +19,14 @@ export interface Survey {
   description: string;
   questions: Question[];
   isActive: boolean;
+  introEnabled: boolean;
+  introMessage?: string | null;
+  termsEnabled: boolean;
+  termsText?: string | null;
   createdAt: string;
   responsesCount: number;
   assignmentsCount: number;
-  hasResponded?: boolean; // solo para viewers
+  hasResponded?: boolean;
 }
 
 export interface SurveyFormData {
@@ -30,6 +34,10 @@ export interface SurveyFormData {
   description: string;
   questions: Question[];
   participantIds: string[];
+  introEnabled: boolean;
+  introMessage: string;
+  termsEnabled: boolean;
+  termsText: string;
 }
 
 export interface Empleado {

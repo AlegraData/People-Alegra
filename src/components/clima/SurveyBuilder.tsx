@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { ArrowLeft, Trash2, CheckCircle2, AlertTriangle, X, Plus } from "lucide-react";
+import { ArrowLeft, Trash2, CheckCircle2, AlertTriangle, X, Plus, MonitorPlay, ShieldCheck } from "lucide-react";
 import type { Question, QuestionType, Survey, SurveyFormData, Empleado } from "@/types/clima";
 import ParticipantSelector from "./ParticipantSelector";
 
@@ -30,6 +30,12 @@ export default function SurveyBuilder({ onSave, onCancel, initialData }: SurveyB
   );
   const [selectedParticipants, setSelectedParticipants] =
     useState<Map<string, Empleado>>(new Map());
+
+  // ── Pantalla introductoria ────────────────────────────────────────────────────
+  const [introEnabled, setIntroEnabled] = useState(initialData?.introEnabled ?? true);
+  const [introMessage, setIntroMessage] = useState(initialData?.introMessage ?? "");
+  const [termsEnabled, setTermsEnabled] = useState(initialData?.termsEnabled ?? false);
+  const [termsText, setTermsText]       = useState(initialData?.termsText ?? "");
 
   // ── Gestión de preguntas ──────────────────────────────────────────────────────
   const addQuestion = (type: QuestionType) => {
@@ -86,7 +92,12 @@ export default function SurveyBuilder({ onSave, onCancel, initialData }: SurveyB
       (q) => q.type === "choice" && (q.options ?? []).filter((o) => o.trim()).length < 2
     );
     if (invalid) { alert("Cada pregunta de opción múltiple debe tener al menos 2 opciones."); return; }
-    onSave({ title, description, questions, participantIds: Array.from(selectedParticipants.keys()) });
+    onSave({
+      title, description, questions,
+      participantIds: Array.from(selectedParticipants.keys()),
+      introEnabled, introMessage: introMessage.trim(),
+      termsEnabled, termsText: termsText.trim(),
+    });
   };
 
   const STEPS = isEditMode
@@ -161,6 +172,117 @@ export default function SurveyBuilder({ onSave, onCancel, initialData }: SurveyB
                 placeholder="Instrucciones o contexto para los participantes..."
               />
             </div>
+
+            {/* ── Pantalla introductoria ─────────────────────────────────── */}
+            <div className="border border-slate-200 rounded-2xl overflow-hidden">
+              {/* Cabecera del bloque */}
+              <div className="flex items-center justify-between px-5 py-4 bg-slate-50">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-primary/10 rounded-xl flex items-center justify-center shrink-0">
+                    <MonitorPlay className="w-4 h-4 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-[#1e293b]">Pantalla de bienvenida</p>
+                    <p className="text-xs text-[#64748b]">Presentación antes de la primera pregunta</p>
+                  </div>
+                </div>
+                {/* Toggle introEnabled */}
+                <button
+                  type="button"
+                  onClick={() => setIntroEnabled((v) => !v)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                    introEnabled ? "bg-primary" : "bg-slate-200"
+                  }`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                    introEnabled ? "translate-x-6" : "translate-x-1"
+                  }`} />
+                </button>
+              </div>
+
+              {/* Cuerpo expandible */}
+              {introEnabled && (
+                <div className="px-5 py-5 space-y-5 border-t border-slate-200">
+                  {/* Vista previa del contenido automático */}
+                  <div className="bg-[#00D6BC]/5 border border-[#00D6BC]/20 rounded-xl px-4 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-primary mb-1.5">
+                      Se mostrará automáticamente
+                    </p>
+                    <p className="text-xs text-[#64748b]">
+                      El <strong>título</strong> y la <strong>descripción</strong> de la encuesta aparecerán siempre en la pantalla de bienvenida.
+                    </p>
+                  </div>
+
+                  {/* Mensaje adicional */}
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-[#64748b] mb-2">
+                      Mensaje de bienvenida adicional <span className="normal-case text-[#94a3b8]">(Opcional)</span>
+                    </label>
+                    <textarea
+                      value={introMessage}
+                      onChange={(e) => {
+                        setIntroMessage(e.target.value);
+                        e.target.style.height = "auto";
+                        e.target.style.height = e.target.scrollHeight + "px";
+                      }}
+                      rows={3}
+                      style={{ minHeight: "80px" }}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary transition-colors resize-none overflow-hidden"
+                      placeholder="Ej: Esta encuesta es completamente anónima. Tus respuestas nos ayudan a mejorar el ambiente de trabajo. Tómate entre 5 y 10 minutos para completarla."
+                    />
+                  </div>
+
+                  {/* Toggle términos */}
+                  <div className="flex items-start justify-between gap-4 py-1">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 bg-amber-50 rounded-xl flex items-center justify-center shrink-0">
+                        <ShieldCheck className="w-4 h-4 text-amber-500" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-[#1e293b]">Aceptación de términos</p>
+                        <p className="text-xs text-[#64748b]">El participante deberá aceptar antes de comenzar</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setTermsEnabled((v) => !v)}
+                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none ${
+                        termsEnabled ? "bg-amber-400" : "bg-slate-200"
+                      }`}
+                    >
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                        termsEnabled ? "translate-x-6" : "translate-x-1"
+                      }`} />
+                    </button>
+                  </div>
+
+                  {/* Texto de términos */}
+                  {termsEnabled && (
+                    <div>
+                      <label className="block text-xs font-bold uppercase text-[#64748b] mb-2">
+                        Texto de términos y condiciones
+                      </label>
+                      <textarea
+                        value={termsText}
+                        onChange={(e) => {
+                          setTermsText(e.target.value);
+                          e.target.style.height = "auto";
+                          e.target.style.height = e.target.scrollHeight + "px";
+                        }}
+                        rows={4}
+                        style={{ minHeight: "96px" }}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary transition-colors resize-none overflow-hidden"
+                        placeholder="Ej: La información proporcionada es estrictamente confidencial y será utilizada únicamente con fines de análisis organizacional. Las respuestas individuales no serán compartidas con nadie y se procesarán de forma agregada."
+                      />
+                      <p className="text-[10px] text-[#94a3b8] mt-1.5">
+                        Si se deja vacío, se usará un texto de confidencialidad predeterminado.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="flex justify-end pt-4">
               <button onClick={() => goToStep(2)} className="bg-[#1e293b] text-white px-8 py-3 rounded-xl font-bold hover:bg-primary transition-all">
                 Siguiente: Preguntas →

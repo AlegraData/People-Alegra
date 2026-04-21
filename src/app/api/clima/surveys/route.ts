@@ -108,7 +108,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { title, description, questions, participantIds } = body;
+    const { title, description, questions, participantIds, introEnabled, introMessage, termsEnabled, termsText } = body;
 
     if (!title?.trim())
       return NextResponse.json({ error: "El título es requerido" }, { status: 400 });
@@ -118,7 +118,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Se requiere al menos un participante" }, { status: 400 });
 
     const survey = await prisma.climateSurvey.create({
-      data: { title: title.trim(), description: description?.trim() ?? "", questions, isActive: true },
+      data: {
+        title: title.trim(),
+        description: description?.trim() ?? "",
+        questions,
+        isActive: true,
+        introEnabled: introEnabled ?? true,
+        introMessage: introMessage?.trim() || null,
+        termsEnabled: termsEnabled ?? false,
+        termsText: termsText?.trim() || null,
+      },
     });
 
     await supabaseAdmin.from("climate_survey_assignments").insert(

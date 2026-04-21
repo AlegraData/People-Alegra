@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { ArrowLeft, ArrowRight, CheckCircle2, Pencil, Send, AlertCircle } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, Pencil, Send, AlertCircle, ShieldCheck, ClipboardList, ChevronRight } from "lucide-react";
 import type { Survey, Question } from "@/types/clima";
 
 interface Props {
@@ -9,7 +9,9 @@ interface Props {
   onCancel: () => void;
 }
 
-type Phase = "question" | "review" | "done";
+type Phase = "intro" | "question" | "review" | "done";
+
+const DEFAULT_TERMS = "La información que proporciones en esta encuesta es completamente confidencial y será utilizada únicamente con fines de análisis organizacional. Tus respuestas individuales no serán compartidas con nadie y solo se procesarán de forma agregada.";
 
 // ── Input según tipo de pregunta ──────────────────────────────────────────────
 function QuestionInput({
@@ -122,9 +124,11 @@ function AnswerLabel({ value, required }: { value: string | number | undefined; 
 // ── Componente principal ──────────────────────────────────────────────────────
 export default function SurveyTaker({ survey, onComplete, onCancel }: Props) {
   const questions                       = survey.questions as Question[];
+  const showIntro                       = survey.introEnabled !== false;
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers]           = useState<Record<string, string | number>>({});
-  const [phase, setPhase]               = useState<Phase>("question");
+  const [phase, setPhase]               = useState<Phase>(showIntro ? "intro" : "question");
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [error, setError]               = useState<string | null>(null);
   const [submitting, setSubmitting]     = useState(false);
   const [visible, setVisible]           = useState(true);
@@ -201,6 +205,110 @@ export default function SurveyTaker({ survey, onComplete, onCancel }: Props) {
       setSubmitting(false);
     }
   };
+
+  // ── Pantalla introductoria ────────────────────────────────────────────────
+  if (phase === "intro") {
+    const termsBody = survey.termsText?.trim() || DEFAULT_TERMS;
+    const canStart  = !survey.termsEnabled || termsAccepted;
+    return (
+      <div className="max-w-2xl mx-auto">
+        <div className="relative bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden">
+          {/* Banda decorativa superior */}
+          <div className="h-2 bg-gradient-to-r from-primary via-[#00b8a3] to-primary/60" />
+
+          <div className="px-10 py-12">
+            {/* Icono + módulo */}
+            <div className="flex items-center gap-3 mb-8">
+              <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center">
+                <ClipboardList className="w-6 h-6 text-primary" />
+              </div>
+              <span className="text-[10px] font-black uppercase tracking-widest text-primary bg-primary/10 px-3 py-1 rounded-full">
+                Encuesta de Clima
+              </span>
+            </div>
+
+            {/* Título */}
+            <h2 className="text-3xl font-extrabold text-[#1e293b] leading-tight mb-4">
+              {survey.title}
+            </h2>
+
+            {/* Descripción */}
+            {survey.description && (
+              <p className="text-[#64748b] text-base leading-relaxed mb-5">
+                {survey.description}
+              </p>
+            )}
+
+            {/* Mensaje adicional */}
+            {survey.introMessage && (
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 mb-6">
+                <p className="text-sm text-[#475569] leading-relaxed whitespace-pre-line">
+                  {survey.introMessage}
+                </p>
+              </div>
+            )}
+
+            {/* Estadística rápida */}
+            <div className="flex items-center gap-2 mb-8">
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#64748b] bg-slate-100 px-3 py-1.5 rounded-full">
+                <span className="w-1.5 h-1.5 rounded-full bg-primary" />
+                {questions.length} pregunta{questions.length !== 1 ? "s" : ""}
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#64748b] bg-slate-100 px-3 py-1.5 rounded-full">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#10B981]" />
+                ~{Math.max(2, Math.ceil(questions.length * 0.5))}–{Math.max(3, questions.length)} min
+              </span>
+            </div>
+
+            {/* Términos y condiciones */}
+            {survey.termsEnabled && (
+              <div className="border border-amber-200 bg-amber-50 rounded-2xl px-5 py-4 mb-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <ShieldCheck className="w-4 h-4 text-amber-500 shrink-0" />
+                  <p className="text-xs font-black uppercase tracking-wider text-amber-600">
+                    Términos de participación
+                  </p>
+                </div>
+                <p className="text-xs text-[#64748b] leading-relaxed mb-4">
+                  {termsBody}
+                </p>
+                <label className="flex items-start gap-3 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={termsAccepted}
+                    onChange={(e) => setTermsAccepted(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 accent-primary rounded shrink-0"
+                  />
+                  <span className="text-xs font-semibold text-[#1e293b]">
+                    He leído y acepto los términos de participación
+                  </span>
+                </label>
+              </div>
+            )}
+
+            {/* Botones */}
+            <div className="flex items-center justify-between">
+              <button
+                onClick={onCancel}
+                className="flex items-center gap-2 text-sm font-bold text-[#64748b] hover:text-[#1e293b] transition-colors"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Volver
+              </button>
+              <button
+                onClick={() => setPhase("question")}
+                disabled={!canStart}
+                className="flex items-center gap-2 bg-[#1e293b] text-white px-8 py-3.5 rounded-2xl font-bold hover:bg-primary hover:shadow-lg hover:shadow-primary/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Comenzar encuesta
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // ── Pantalla de éxito ─────────────────────────────────────────────────────
   if (phase === "done") {
@@ -315,7 +423,7 @@ export default function SurveyTaker({ survey, onComplete, onCancel }: Props) {
       {/* Header: volver + título + progreso numérico */}
       <div className="flex items-center gap-3">
         <button
-          onClick={onCancel}
+          onClick={() => showIntro && currentIndex === 0 ? setPhase("intro") : onCancel()}
           className="p-2 hover:bg-slate-100 rounded-full transition-colors text-[#64748b]"
         >
           <ArrowLeft className="w-5 h-5" />
