@@ -9,6 +9,18 @@ export async function GET(request: NextRequest) {
   const code = searchParams.get("code");
   const next = searchParams.get("next") ?? "/";
 
+  // Obtener el origen público lo antes posible (necesario en todos los paths)
+  const host =
+    request.headers.get("x-forwarded-host") ??
+    request.headers.get("host") ??
+    request.nextUrl.host;
+  const proto =
+    request.headers.get("x-forwarded-proto")?.split(",")[0] ??
+    request.nextUrl.protocol.replace(":", "");
+  const publicOrigin = `${proto}://${host}`;
+
+  let callbackError: string | null = null;
+
   if (code) {
     // Collect cookies that Supabase wants to set so we can attach them
     // directly to the redirect response (instead of relying on next/headers).
@@ -65,18 +77,7 @@ export async function GET(request: NextRequest) {
         // Si falla el registro en user_roles no bloqueamos el login
       }
 
-      // Usar x-forwarded-host para obtener la URL pública correcta detrás de proxies
-      const host =
-        request.headers.get("x-forwarded-host") ??
-        request.headers.get("host") ??
-        request.nextUrl.host;
-      const proto =
-        request.headers.get("x-forwarded-proto")?.split(",")[0] ??
-        request.nextUrl.protocol.replace(":", "");
-      const publicOrigin = `${proto}://${host}`;
-
       const redirectUrl = new URL(next, publicOrigin);
-
       const response = NextResponse.redirect(redirectUrl);
 
       // Adjuntar las cookies de sesión a la respuesta de redirección
@@ -86,19 +87,14 @@ export async function GET(request: NextRequest) {
 
       return response;
     }
+
+    callbackError = exchangeError.message;
   }
 
-  const host =
-    request.headers.get("x-forwarded-host") ??
-    request.headers.get("host") ??
-    request.nextUrl.host;
-  const proto =
-    request.headers.get("x-forwarded-proto")?.split(",")[0] ??
-    request.nextUrl.protocol.replace(":", "");
-
   // Redirigir al login con el mensaje de error y preservando next para reintento
-  const errUrl = new URL("/login", `${proto}://${host}`);
+  const errUrl = new URL("/login", publicOrigin);
   errUrl.searchParams.set("error", "auth_callback_error");
+  if (callbackError) errUrl.searchParams.set("message", callbackError);
   if (next && next !== "/") errUrl.searchParams.set("next", next);
   return NextResponse.redirect(errUrl);
 }

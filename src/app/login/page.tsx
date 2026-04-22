@@ -23,8 +23,13 @@ interface ShootingStar {
 
 export default function LoginPage() {
   const supabase = createClient();
+  const [authError, setAuthError]       = useState(false);
   const [stars, setStars]               = useState<Star[]>([]);
   const [shootingStars, setShootingStars] = useState<ShootingStar[]>([]);
+
+  useEffect(() => {
+    setAuthError(new URLSearchParams(window.location.search).get("error") === "auth_callback_error");
+  }, []);
 
   useEffect(() => {
     // Estrellas estáticas titilantes
@@ -137,6 +142,13 @@ export default function LoginPage() {
         <p className="text-[#64748b] mb-10 font-medium leading-relaxed">
           Inicia sesión para acceder a tu portal de crecimiento y bienestar.
         </p>
+
+        {authError && (
+          <div className="mb-6 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-600 text-left">
+            Ocurrió un error al iniciar sesión. Por favor intenta de nuevo.
+          </div>
+        )}
+
         <button
           onClick={handleGoogleLogin}
           className="w-full flex items-center justify-center gap-4 bg-[#1e293b] text-white py-4 rounded-2xl font-bold hover:bg-primary hover:shadow-lg hover:shadow-primary/20 transition-all duration-300"
