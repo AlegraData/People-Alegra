@@ -57,7 +57,7 @@ export default function TakeSurveyPage() {
         </Link>
         <SurveyTaker
           survey={survey}
-          onComplete={() => setPageState("completed")}
+          onComplete={() => router.push("/")}
           onCancel={() => router.push("/clima")}
         />
       </div>
