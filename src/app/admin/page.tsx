@@ -5,11 +5,28 @@ import React from "react";
 import {
   Shield, Search, Trash2, Users, Crown, BarChart2, Eye,
   Layers, Check, X, ChevronDown, ChevronUp, ChevronLeft,
+  TrendingUp, MessageSquare, UserRound, Power, LayoutGrid,
 } from "lucide-react";
 import Link from "next/link";
 
 type Role = "admin" | "manager" | "viewer";
 type PageSize = 10 | 25 | 50 | 100 | "all";
+type AdminTab = "usuarios" | "modulos";
+
+interface ModuleConfig {
+  id: string;
+  label: string;
+  description: string | null;
+  is_active: boolean;
+  sort_order: number;
+  min_role: "viewer" | "manager" | "admin";
+}
+
+const MIN_ROLE_OPTIONS: { value: "viewer" | "manager" | "admin"; label: string }[] = [
+  { value: "viewer",  label: "Todos"       },
+  { value: "manager", label: "Managers+"   },
+  { value: "admin",   label: "Solo Admin"  },
+];
 const PAGE_SIZES: PageSize[] = [10, 25, 50, 100, "all"];
 
 interface ModuleRole { module: string; role: Role; }
@@ -43,6 +60,12 @@ const MODULE_ROLE_COLORS: Record<Role, string> = {
   viewer:  "bg-slate-100 text-[#64748b]",
 };
 
+const MODULE_ICONS: Record<string, React.ReactNode> = {
+  enps:  <TrendingUp    className="w-6 h-6" />,
+  clima: <MessageSquare className="w-6 h-6" />,
+  "360": <UserRound     className="w-6 h-6" />,
+};
+
 export default function AdminPage() {
   const router = useRouter();
   const [users, setUsers]             = useState<AdminUser[]>([]);
@@ -54,7 +77,11 @@ export default function AdminPage() {
   const [moduleEdits, setModuleEdits]     = useState<Record<string, string>>({});
   const [page, setPage]                   = useState(1);
   const [pageSize, setPageSize]           = useState<PageSize>(10);
-  const [savingModules, setSavingModules] = useState(false);
+  const [savingModules, setSavingModules]   = useState(false);
+  const [activeTab, setActiveTab]           = useState<AdminTab>("usuarios");
+  const [moduleList, setModuleList]         = useState<ModuleConfig[]>([]);
+  const [modulesLoading, setModulesLoading] = useState(false);
+  const [togglingModule, setTogglingModule] = useState<string | null>(null);
   const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -63,7 +90,7 @@ export default function AdminPage() {
       if (!roleRes.ok) { router.replace("/login"); return; }
       const { role } = await roleRes.json();
       if (role !== "admin") { router.replace("/"); return; }
-      await loadUsers();
+      await Promise.all([loadUsers(), loadModules()]);
     };
     init();
   }, []);
@@ -81,6 +108,41 @@ export default function AdminPage() {
       setLoading(false);
     }
   };
+
+  const loadModules = async () => {
+    setModulesLoading(true);
+    try {
+      const res = await fetch("/api/admin/modules");
+      if (res.ok) setModuleList(await res.json());
+    } finally {
+      setModulesLoading(false);
+    }
+  };
+
+  const patchModule = async (id: string, body: Record<string, unknown>) => {
+    setTogglingModule(id);
+    try {
+      const res = await fetch(`/api/admin/modules/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setModuleList((prev) => prev.map((m) => m.id === id ? { ...m, ...updated } : m));
+      } else {
+        alert("Error al actualizar el módulo.");
+      }
+    } finally {
+      setTogglingModule(null);
+    }
+  };
+
+  const handleToggleModule = (id: string, isActive: boolean) =>
+    patchModule(id, { isActive });
+
+  const handleSetMinRole = (id: string, minRole: string) =>
+    patchModule(id, { minRole });
 
   // ── Rol global ──────────────────────────────────────────────────────────────
   const handleRoleChange = async (userId: string, newRole: Role) => {
@@ -222,8 +284,135 @@ export default function AdminPage() {
           <Shield className="text-primary w-8 h-8" />
           Panel de Administración
         </h2>
-        <p className="text-[#64748b] mt-1">Gestiona los accesos y roles de los usuarios de la plataforma.</p>
+        <p className="text-[#64748b] mt-1">
+          {activeTab === "usuarios"
+            ? "Gestiona los accesos y roles de los usuarios de la plataforma."
+            : "Activa o desactiva los módulos disponibles en la plataforma."}
+        </p>
       </div>
+
+      {/* Tabs */}
+      <div className="flex gap-2 bg-slate-100 p-1 rounded-xl w-fit">
+        <button
+          onClick={() => setActiveTab("usuarios")}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${
+            activeTab === "usuarios"
+              ? "bg-white shadow-sm text-[#1e293b]"
+              : "text-[#64748b] hover:text-[#1e293b]"
+          }`}
+        >
+          <Users className="w-4 h-4" />
+          Usuarios
+        </button>
+        <button
+          onClick={() => setActiveTab("modulos")}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${
+            activeTab === "modulos"
+              ? "bg-white shadow-sm text-[#1e293b]"
+              : "text-[#64748b] hover:text-[#1e293b]"
+          }`}
+        >
+          <LayoutGrid className="w-4 h-4" />
+          Módulos
+        </button>
+      </div>
+
+      {/* ── Tab: Módulos ────────────────────────────────────────────────────────── */}
+      {activeTab === "modulos" && (
+        modulesLoading ? (
+          <div className="flex items-center justify-center py-16">
+            <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {moduleList.map((mod) => {
+              const isBusy = togglingModule === mod.id;
+              return (
+                <div
+                  key={mod.id}
+                  className={`bg-white rounded-[2rem] p-7 border shadow-sm flex flex-col gap-5 transition-all ${
+                    mod.is_active ? "border-slate-100" : "border-slate-100 opacity-60"
+                  }`}
+                >
+                  {/* Icono + toggle activo/inactivo */}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-colors ${
+                      mod.is_active ? "bg-primary/10 text-primary" : "bg-slate-100 text-slate-400"
+                    }`}>
+                      {MODULE_ICONS[mod.id] ?? <Power className="w-6 h-6" />}
+                    </div>
+
+                    <button
+                      onClick={() => handleToggleModule(mod.id, !mod.is_active)}
+                      disabled={isBusy}
+                      title={mod.is_active ? "Desactivar módulo" : "Activar módulo"}
+                      className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors focus:outline-none disabled:opacity-60 ${
+                        mod.is_active ? "bg-primary" : "bg-slate-200"
+                      }`}
+                    >
+                      {isBusy ? (
+                        <span className="absolute inset-0 flex items-center justify-center">
+                          <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        </span>
+                      ) : (
+                        <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                          mod.is_active ? "translate-x-6" : "translate-x-1"
+                        }`} />
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Nombre + descripción */}
+                  <div className="flex-1">
+                    <h3 className="text-lg font-black text-[#1e293b]">{mod.label}</h3>
+                    {mod.description && (
+                      <p className="text-sm text-[#64748b] mt-1.5 leading-relaxed">{mod.description}</p>
+                    )}
+                  </div>
+
+                  {/* Visibilidad por rol */}
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-[#64748b]">
+                      Visible para
+                    </p>
+                    <div className="flex gap-1.5 bg-slate-100 p-1 rounded-xl">
+                      {MIN_ROLE_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.value}
+                          onClick={() => handleSetMinRole(mod.id, opt.value)}
+                          disabled={isBusy || !mod.is_active}
+                          className={`flex-1 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wide transition-all disabled:opacity-40 ${
+                            mod.min_role === opt.value
+                              ? "bg-white shadow-sm text-[#1e293b]"
+                              : "text-[#64748b] hover:text-[#1e293b]"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Estado */}
+                  <div className="pt-4 border-t border-slate-50">
+                    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                      mod.is_active
+                        ? "bg-[#10B981]/10 text-[#10B981]"
+                        : "bg-slate-100 text-[#64748b]"
+                    }`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${mod.is_active ? "bg-[#10B981]" : "bg-slate-400"}`} />
+                      {mod.is_active ? "Activo" : "Inactivo"}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )
+      )}
+
+      {/* ── Tab: Usuarios ───────────────────────────────────────────────────────── */}
+      {activeTab === "usuarios" && <>
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -534,6 +723,8 @@ export default function AdminPage() {
           </div>
         )}
       </div>
+
+      </>}
     </div>
   );
 }

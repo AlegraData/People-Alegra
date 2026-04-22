@@ -2,7 +2,7 @@
 import { useEffect, useState, useRef } from "react";
 import { Bell, LogOut, Shield, ClipboardList, TrendingUp, ChevronRight, CheckCircle2 } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 
 interface PendingSurvey {
@@ -21,18 +21,18 @@ export default function Header() {
   const notifRef                          = useRef<HTMLDivElement>(null);
   const supabase                          = createClient();
   const router                            = useRouter();
+  const pathname                          = usePathname();
 
+  // Carga inicial: usuario, rol y cargo (solo una vez)
   useEffect(() => {
-    const init = async () => {
+    const loadProfile = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       setUser(user);
 
-      const [roleRes, profileRes, climaRes, enpsRes] = await Promise.allSettled([
+      const [roleRes, profileRes] = await Promise.allSettled([
         fetch("/api/auth/role"),
         fetch("/api/auth/profile"),
-        fetch("/api/clima/surveys"),
-        fetch("/api/enps/surveys"),
       ]);
 
       if (roleRes.status === "fulfilled" && roleRes.value.ok) {
@@ -46,35 +46,47 @@ export default function Header() {
         const { cargo } = await profileRes.value.json();
         setCargo(cargo ?? "");
       }
+    };
+    loadProfile();
+  }, []);
 
-      const pending: PendingSurvey[] = [];
+  // Recarga de notificaciones en cada cambio de ruta (para reflejar encuestas completadas)
+  useEffect(() => {
+    const loadPending = async () => {
+      const modulesRes = await fetch("/api/modules").catch(() => null);
+      if (!modulesRes?.ok) return;
 
-      if (climaRes.status === "fulfilled" && climaRes.value.ok) {
-        const surveys = await climaRes.value.json();
-        if (Array.isArray(surveys)) {
-          surveys
-            .filter((s: any) => s.isActive && !s.hasResponded)
-            .forEach((s: any) =>
-              pending.push({ id: s.id, title: s.title, description: s.description ?? "", module: "clima" })
-            );
-        }
+      const mods: { id: string }[] = await modulesRes.json();
+      const activeModuleIds = new Set(mods.map((m) => m.id));
+
+      const surveyFetches: Promise<[string, Response]>[] = [];
+      if (activeModuleIds.has("clima")) {
+        surveyFetches.push(fetch("/api/clima/surveys").then((r) => ["clima", r] as [string, Response]));
+      }
+      if (activeModuleIds.has("enps")) {
+        surveyFetches.push(fetch("/api/enps/surveys").then((r) => ["enps", r] as [string, Response]));
       }
 
-      if (enpsRes.status === "fulfilled" && enpsRes.value.ok) {
-        const surveys = await enpsRes.value.json();
-        if (Array.isArray(surveys)) {
-          surveys
-            .filter((s: any) => s.isActive && !s.hasResponded)
-            .forEach((s: any) =>
-              pending.push({ id: s.id, title: s.title, description: s.description ?? "", module: "enps" })
-            );
-        }
+      const surveyResults = await Promise.allSettled(surveyFetches);
+      const pending: PendingSurvey[] = [];
+
+      for (const result of surveyResults) {
+        if (result.status !== "fulfilled") continue;
+        const [mod, res] = result.value;
+        if (!res.ok) continue;
+        const surveys = await res.json();
+        if (!Array.isArray(surveys)) continue;
+        surveys
+          .filter((s: any) => s.isActive && !s.hasResponded)
+          .forEach((s: any) =>
+            pending.push({ id: s.id, title: s.title, description: s.description ?? "", module: mod as "clima" | "enps" })
+          );
       }
 
       setPendingSurveys(pending);
     };
-    init();
-  }, []);
+    loadPending();
+  }, [pathname]);
 
   // Cerrar dropdown al hacer clic fuera
   useEffect(() => {

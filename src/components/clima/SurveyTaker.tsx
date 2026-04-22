@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { ArrowLeft, ArrowRight, CheckCircle2, Pencil, Send, AlertCircle, ShieldCheck, ClipboardList, ChevronRight } from "lucide-react";
 import type { Survey, Question } from "@/types/clima";
 
@@ -12,6 +12,27 @@ interface Props {
 type Phase = "intro" | "question" | "review" | "done";
 
 const DEFAULT_TERMS = "La información que proporciones en esta encuesta es completamente confidencial y será utilizada únicamente con fines de análisis organizacional. Tus respuestas individuales no serán compartidas con nadie y solo se procesarán de forma agregada.";
+
+function AutoTextarea({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (!ref.current) return;
+    ref.current.style.height = "auto";
+    ref.current.style.height = `${ref.current.scrollHeight}px`;
+  }, [value]);
+
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      rows={4}
+      className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl p-4 outline-none focus:border-primary transition-colors text-sm resize-none overflow-hidden"
+      placeholder="Escribe tu respuesta aquí..."
+    />
+  );
+}
 
 function withExternalLinks(html: string): string {
   return html.replace(/<a\s/gi, '<a target="_blank" rel="noopener noreferrer" ');
@@ -102,14 +123,7 @@ function QuestionInput({
   }
 
   // text
-  return (
-    <textarea
-      value={(value as string) ?? ""}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl p-4 outline-none focus:border-primary transition-colors min-h-[120px] text-sm resize-none"
-      placeholder="Escribe tu respuesta aquí..."
-    />
-  );
+  return <AutoTextarea value={(value as string) ?? ""} onChange={onChange} />;
 }
 
 // ── Etiqueta de respuesta en pantalla de revisión ─────────────────────────────
@@ -268,10 +282,6 @@ export default function SurveyTaker({ survey, onComplete, onCancel }: Props) {
               <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#64748b] bg-slate-100 px-3 py-1.5 rounded-full">
                 <span className="w-1.5 h-1.5 rounded-full bg-primary" />
                 {questions.length} pregunta{questions.length !== 1 ? "s" : ""}
-              </span>
-              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#64748b] bg-slate-100 px-3 py-1.5 rounded-full">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#10B981]" />
-                ~{Math.max(2, Math.ceil(questions.length * 0.5))}–{Math.max(3, questions.length)} min
               </span>
             </div>
 
@@ -498,12 +508,6 @@ export default function SurveyTaker({ survey, onComplete, onCancel }: Props) {
             onChange={(v) => setAnswer(currentQ.id, v)}
           />
 
-          {/* Hint */}
-          {answers[currentQ.id] === undefined && !currentQ.required && (
-            <p className="text-center text-xs mt-6 text-[#94a3b8]">
-              Selecciona una opción — o avanza sin responder
-            </p>
-          )}
         </div>
       </div>
 

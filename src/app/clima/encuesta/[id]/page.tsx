@@ -113,7 +113,7 @@ export default function TakeSurveyPage() {
         <h2 className="text-2xl font-black text-[#1e293b]">{s.title}</h2>
         <p className="text-[#64748b] font-medium leading-relaxed">{s.body}</p>
         <Link
-          href="/clima"
+          href="/"
           className="inline-flex items-center gap-2 mt-2 px-6 py-3 rounded-2xl bg-[#1e293b] text-white font-bold hover:bg-primary transition-colors"
         >
           <ChevronLeft className="w-4 h-4" />
