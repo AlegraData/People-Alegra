@@ -42,7 +42,9 @@ export async function POST(request: Request) {
     };
 
     const appUrl    = process.env.APP_URL ?? "http://localhost:3000";
-    const surveyUrl = `${appUrl}/clima`;
+    const surveyUrl = surveyId
+      ? `${appUrl}/clima/encuesta/${surveyId}`
+      : `${appUrl}/clima`;
 
     // ── Modo test: enviar solo al correo de prueba ──────────────────────────
     if (testEmail) {

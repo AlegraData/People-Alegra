@@ -181,7 +181,7 @@ async function sendInvitationsToAll(
   if (!assignments?.length) return;
 
   const appUrl    = process.env.APP_URL ?? "http://localhost:3000";
-  const surveyUrl = `${appUrl}/clima`;
+  const surveyUrl = `${appUrl}/clima/encuesta/${surveyId}`;
   const template  = {
     subject:    info.emailSubject,
     body:       info.emailBody,
