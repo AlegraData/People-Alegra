@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { ArrowLeft, Download } from "lucide-react";
 import type { Survey } from "@/types/clima";
+import * as XLSX from "xlsx";
 
 interface SurveyResultsProps {
   survey: Survey;
@@ -17,7 +18,7 @@ interface ResponseRow {
 export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
   const [exporting, setExporting] = useState(false);
 
-  const handleExportCSV = async () => {
+  const handleExportExcel = async () => {
     setExporting(true);
     try {
       const response = await fetch(`/api/clima/responses?surveyId=${survey.id}`);
@@ -28,24 +29,43 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
         return;
       }
 
+      const questions = survey.questions as { id: string; text: string }[];
+
+      // Encabezados: Empleado, Fecha, luego texto de cada pregunta
+      const headers = [
+        "Empleado",
+        "Fecha",
+        ...questions.map((q) => q.text),
+      ];
+
+      // Filas: una por respuesta
       const rows = data.map((row) => {
-        const answersStr = JSON.stringify(row.answers).replace(/"/g, '""');
         const date = new Date(row.submittedAt).toLocaleDateString("es-CO");
-        return `${row.employee?.email ?? "Anónimo"},${date},"${answersStr}"`;
+        const answers = questions.map((q) => {
+          const val = (row.answers as Record<string, unknown>)[q.id];
+          return val !== undefined && val !== null ? String(val) : "";
+        });
+        return [row.employee?.email ?? "Anónimo", date, ...answers];
       });
 
-      const csvContent =
-        "data:text/csv;charset=utf-8,Empleado,Fecha,Respuestas\n" + rows.join("\n");
+      const wsData = [headers, ...rows];
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
 
-      const link = document.createElement("a");
-      link.setAttribute("href", encodeURI(csvContent));
-      link.setAttribute(
-        "download",
-        `resultados_${survey.title.replace(/\s+/g, "_")}.csv`
+      // Ancho automático por columna
+      ws["!cols"] = headers.map((h, i) => ({
+        wch: Math.max(
+          h.length,
+          ...rows.map((r) => String(r[i] ?? "").length)
+        ) + 2,
+      }));
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Resultados");
+
+      XLSX.writeFile(
+        wb,
+        `resultados_${survey.title.replace(/\s+/g, "_")}.xlsx`
       );
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
     } catch {
       alert("Error al exportar. Intenta de nuevo.");
     } finally {
@@ -69,12 +89,12 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
           </div>
         </div>
         <button
-          onClick={handleExportCSV}
+          onClick={handleExportExcel}
           disabled={exporting}
           className="flex items-center gap-2 bg-[#1e293b] text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-primary transition-all disabled:opacity-60"
         >
           <Download className="w-4 h-4" />
-          {exporting ? "Exportando..." : "Exportar CSV"}
+          {exporting ? "Exportando..." : "Exportar Excel"}
         </button>
       </div>
 
