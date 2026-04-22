@@ -149,6 +149,7 @@ export default function SurveyTaker({ survey, onComplete, onCancel }: Props) {
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [error, setError]               = useState<string | null>(null);
   const [submitting, setSubmitting]     = useState(false);
+  const [submitted, setSubmitted]       = useState(false);
   const [visible, setVisible]           = useState(true);
   const [highlightMissing, setHighlightMissing] = useState<Set<string>>(new Set());
 
@@ -212,6 +213,7 @@ export default function SurveyTaker({ survey, onComplete, onCancel }: Props) {
         body: JSON.stringify({ surveyId: survey.id, answers }),
       });
       if (res.ok) {
+        setSubmitted(true);
         setPhase("done");
       } else {
         const data = await res.json();
@@ -428,7 +430,7 @@ export default function SurveyTaker({ survey, onComplete, onCancel }: Props) {
         <div className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm flex justify-end">
           <button
             onClick={handleSubmit}
-            disabled={submitting}
+            disabled={submitting || submitted}
             className="flex items-center gap-2 bg-primary text-white px-8 py-3 rounded-xl font-bold hover:shadow-lg hover:shadow-primary/20 transition-all disabled:opacity-50"
           >
             {submitting
