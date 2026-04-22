@@ -195,8 +195,10 @@ export default function SurveyParticipants({ survey, onBack, onSurveyUpdated }: 
     }
   };
 
-  const responded = participants.filter((p) =>  p.completed_at);
-  const pending   = participants.filter((p) => !p.completed_at);
+  // Usar response_id como fallback por si completed_at no se actualizó correctamente
+  const hasResponded = (p: SurveyParticipant) => !!(p.completed_at || p.response_id);
+  const responded = participants.filter(hasResponded);
+  const pending   = participants.filter((p) => !hasResponded(p));
   const pct = participants.length ? Math.round((responded.length / participants.length) * 100) : 0;
 
   if (mode === "add") {
@@ -327,7 +329,7 @@ export default function SurveyParticipants({ survey, onBack, onSurveyUpdated }: 
                         <p className="text-xs text-[#94a3b8]">{p.equipo ?? "—"}</p>
                       </td>
                       <td className="py-3.5 pr-4">
-                        {p.completed_at ? (
+                        {hasResponded(p) ? (
                           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-[#10B981]/10 text-[#10B981]">
                             <CheckCircle2 className="w-3 h-3" />
                             Respondió
@@ -344,12 +346,12 @@ export default function SurveyParticipants({ survey, onBack, onSurveyUpdated }: 
                           ? new Date(p.completed_at).toLocaleDateString("es-CO", {
                               day: "2-digit", month: "short", year: "numeric",
                             })
-                          : "—"}
+                          : hasResponded(p) ? "Fecha no registrada" : "—"}
                       </td>
                       <td className="py-3.5 pr-4">
                         <div className="flex items-center justify-end gap-2">
                           {/* Recordatorio — solo pendientes */}
-                          {!p.completed_at && (
+                          {!hasResponded(p) && (
                             <button
                               onClick={() => openReminderModal({ type: "one", employeeId: p.employee_id, correo: p.correo })}
                               disabled={!!actionLoading}
@@ -361,7 +363,7 @@ export default function SurveyParticipants({ survey, onBack, onSurveyUpdated }: 
                             </button>
                           )}
                           {/* Reset — solo respondidos */}
-                          {p.completed_at && (
+                          {hasResponded(p) && (
                             <button
                               onClick={() => handleReset(p)}
                               disabled={!!actionLoading}

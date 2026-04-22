@@ -38,11 +38,14 @@ export async function POST(request: Request) {
     });
 
     // Marcar la asignación como completada (si existe)
-    await supabaseAdmin
+    const { error: updateErr } = await supabaseAdmin
       .from("climate_survey_assignments")
       .update({ completed_at: new Date().toISOString() })
       .eq("survey_id", surveyId)
       .eq("employee_id", employee.id);
+    if (updateErr) {
+      console.error("[POST /api/clima/responses] completed_at update failed:", updateErr);
+    }
 
     return NextResponse.json(response, { status: 201 });
   } catch (error) {
