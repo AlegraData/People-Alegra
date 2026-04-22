@@ -486,7 +486,7 @@ export default function SurveyTaker({ survey, onComplete, onCancel }: Props) {
                 <span className="text-slate-400 italic">Sin texto</span>
               )}
               {currentQ.required && (
-                <span className="inline-block ml-1 animate-pulse text-primary text-2xl leading-none align-middle select-none">*</span>
+                <span className="inline-block ml-1 animate-pulse text-red-400 text-2xl leading-none align-middle select-none">*</span>
               )}
             </p>
           </div>
