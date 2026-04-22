@@ -1,8 +1,9 @@
 export const dynamic = "force-dynamic";
-import { NextResponse } from "next/server";
-import prisma from "@/lib/prisma";
-import { createClient } from "@/utils/supabase/server";
-import { supabaseAdmin } from "@/utils/supabase/admin";
+import { NextResponse }         from "next/server";
+import prisma                   from "@/lib/prisma";
+import { createClient }         from "@/utils/supabase/server";
+import { supabaseAdmin }        from "@/utils/supabase/admin";
+import { sendSurveyInvitation } from "@/lib/mailer";
 
 // GET: Encuestas según el rol del usuario
 export async function GET() {
@@ -108,7 +109,11 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { title, description, questions, participantIds, introEnabled, introMessage, termsEnabled, termsText } = body;
+    const {
+      title, description, questions, participantIds,
+      introEnabled, introMessage, termsEnabled, termsText,
+      emailSubject, emailBody, emailButtonText, emailFooter,
+    } = body;
 
     if (!title?.trim())
       return NextResponse.json({ error: "El título es requerido" }, { status: 400 });
@@ -127,12 +132,26 @@ export async function POST(request: Request) {
         introMessage: introMessage?.trim() || null,
         termsEnabled: termsEnabled ?? false,
         termsText: termsText?.trim() || null,
+        emailSubject:    emailSubject?.trim()    || null,
+        emailBody:       emailBody?.trim()       || null,
+        emailButtonText: emailButtonText?.trim() || null,
+        emailFooter:     emailFooter?.trim()     || null,
       },
     });
 
     await supabaseAdmin.from("climate_survey_assignments").insert(
       (participantIds as string[]).map((employeeId) => ({ survey_id: survey.id, employee_id: employeeId }))
     );
+
+    // Auto-envío de invitaciones en segundo plano (no bloquea la respuesta)
+    sendInvitationsToAll(survey.id, {
+      title: survey.title,
+      description: survey.description ?? "",
+      emailSubject:    survey.emailSubject,
+      emailBody:       survey.emailBody,
+      emailButtonText: survey.emailButtonText,
+      emailFooter:     survey.emailFooter,
+    }).catch((err) => console.error("[auto-invite] Error enviando correos:", err));
 
     return NextResponse.json(
       { ...survey, responsesCount: 0, assignmentsCount: participantIds.length },
@@ -142,4 +161,48 @@ export async function POST(request: Request) {
     console.error("[POST /api/clima/surveys]", error);
     return NextResponse.json({ error: "Error interno al crear la encuesta" }, { status: 500 });
   }
+}
+
+async function sendInvitationsToAll(
+  surveyId: string,
+  info: { title: string; description: string; emailSubject?: string | null; emailBody?: string | null; emailButtonText?: string | null; emailFooter?: string | null }
+) {
+  const { data: assignments } = await supabaseAdmin
+    .from("climate_survey_assignments")
+    .select(`
+      employee_id,
+      employees!inner(
+        email,
+        employee_personal_info(nombres, primer_apellido, es_actual)
+      )
+    `)
+    .eq("survey_id", surveyId);
+
+  if (!assignments?.length) return;
+
+  const appUrl    = process.env.APP_URL ?? "http://localhost:3000";
+  const surveyUrl = `${appUrl}/clima`;
+  const template  = {
+    subject:    info.emailSubject,
+    body:       info.emailBody,
+    buttonText: info.emailButtonText,
+    footer:     info.emailFooter,
+  };
+
+  await Promise.allSettled(
+    assignments.map(async (a: any) => {
+      const emp      = a.employees;
+      const infoList = emp.employee_personal_info ?? [];
+      const active   = infoList.find((i: any) => i.es_actual) ?? infoList[0];
+      const name     = active
+        ? `${active.nombres ?? ""} ${active.primer_apellido ?? ""}`.trim()
+        : emp.email;
+
+      await sendSurveyInvitation({
+        to: emp.email, recipientName: name || emp.email,
+        surveyTitle: info.title, surveyDescription: info.description,
+        surveyUrl, isReminder: false, template,
+      });
+    })
+  );
 }

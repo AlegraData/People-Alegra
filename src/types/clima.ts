@@ -1,6 +1,13 @@
 export type Role = "admin" | "manager" | "viewer";
 export type QuestionType = "text" | "rating" | "boolean" | "choice";
 
+export interface EmailTemplateConfig {
+  subject?: string | null;
+  body?: string | null;
+  buttonText?: string | null;
+  footer?: string | null;
+}
+
 export interface Question {
   id: string;
   text: string;
@@ -23,6 +30,10 @@ export interface Survey {
   introMessage?: string | null;
   termsEnabled: boolean;
   termsText?: string | null;
+  emailSubject?: string | null;
+  emailBody?: string | null;
+  emailButtonText?: string | null;
+  emailFooter?: string | null;
   createdAt: string;
   responsesCount: number;
   assignmentsCount: number;
@@ -38,6 +49,10 @@ export interface SurveyFormData {
   introMessage: string;
   termsEnabled: boolean;
   termsText: string;
+  emailSubject: string;
+  emailBody: string;
+  emailButtonText: string;
+  emailFooter: string;
 }
 
 export interface Empleado {

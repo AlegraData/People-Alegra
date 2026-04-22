@@ -1,14 +1,17 @@
 "use client";
 import { useState } from "react";
-import { ArrowLeft, Trash2, CheckCircle2, AlertTriangle, X, Plus, MonitorPlay, ShieldCheck } from "lucide-react";
-import type { Question, QuestionType, Survey, SurveyFormData, Empleado } from "@/types/clima";
+import { ArrowLeft, Copy, Trash2, CheckCircle2, AlertTriangle, X, Plus, MonitorPlay, ShieldCheck, Mail } from "lucide-react";
+import type { Question, QuestionType, Survey, SurveyFormData, EmailTemplateConfig, Empleado } from "@/types/clima";
 import ParticipantSelector from "./ParticipantSelector";
+import RichTextEditor from "./RichTextEditor";
+import EmailTemplateEditor from "./EmailTemplateEditor";
 
 type Step = 1 | 2 | 3;
 interface SurveyBuilderProps {
   onSave: (data: SurveyFormData) => void;
   onCancel: () => void;
   initialData?: Survey;
+  isDuplicate?: boolean;
 }
 
 
@@ -19,11 +22,11 @@ function questionLabel(q: Question): string {
   return "Texto abierto";
 }
 
-export default function SurveyBuilder({ onSave, onCancel, initialData }: SurveyBuilderProps) {
-  const isEditMode = !!initialData;
+export default function SurveyBuilder({ onSave, onCancel, initialData, isDuplicate }: SurveyBuilderProps) {
+  const isEditMode = !!initialData && !isDuplicate;
 
   const [step, setStep]           = useState<Step>(1);
-  const [title, setTitle]         = useState(initialData?.title ?? "");
+  const [title, setTitle]         = useState(isDuplicate ? `Copia de ${initialData?.title ?? ""}` : (initialData?.title ?? ""));
   const [description, setDescription] = useState(initialData?.description ?? "");
   const [questions, setQuestions] = useState<Question[]>(
     (initialData?.questions as Question[]) ?? []
@@ -36,6 +39,15 @@ export default function SurveyBuilder({ onSave, onCancel, initialData }: SurveyB
   const [introMessage, setIntroMessage] = useState(initialData?.introMessage ?? "");
   const [termsEnabled, setTermsEnabled] = useState(initialData?.termsEnabled ?? false);
   const [termsText, setTermsText]       = useState(initialData?.termsText ?? "");
+
+  // ── Plantilla de correo ───────────────────────────────────────────────────────
+  const [emailExpanded, setEmailExpanded] = useState(false);
+  const [emailTemplate, setEmailTemplate] = useState<EmailTemplateConfig>({
+    subject:    isDuplicate ? null : (initialData?.emailSubject    ?? null),
+    body:       isDuplicate ? null : (initialData?.emailBody       ?? null),
+    buttonText: isDuplicate ? null : (initialData?.emailButtonText ?? null),
+    footer:     isDuplicate ? null : (initialData?.emailFooter     ?? null),
+  });
 
   // ── Gestión de preguntas ──────────────────────────────────────────────────────
   const addQuestion = (type: QuestionType) => {
@@ -50,6 +62,14 @@ export default function SurveyBuilder({ onSave, onCancel, initialData }: SurveyB
 
   const removeQuestion = (id: string) =>
     setQuestions((prev) => prev.filter((q) => q.id !== id));
+
+  const duplicateQuestion = (id: string) =>
+    setQuestions((prev) => {
+      const idx = prev.findIndex((q) => q.id === id);
+      if (idx === -1) return prev;
+      const clone = { ...prev[idx], options: [...(prev[idx].options ?? [])], id: Date.now().toString() };
+      return [...prev.slice(0, idx + 1), clone, ...prev.slice(idx + 1)];
+    });
 
   // Opciones de preguntas choice
   const addOption = (qId: string) =>
@@ -97,6 +117,10 @@ export default function SurveyBuilder({ onSave, onCancel, initialData }: SurveyB
       participantIds: Array.from(selectedParticipants.keys()),
       introEnabled, introMessage: introMessage.trim(),
       termsEnabled, termsText: termsText.trim(),
+      emailSubject:    emailTemplate.subject?.trim()    ?? "",
+      emailBody:       emailTemplate.body?.trim()       ?? "",
+      emailButtonText: emailTemplate.buttonText?.trim() ?? "",
+      emailFooter:     emailTemplate.footer?.trim()     ?? "",
     });
   };
 
@@ -148,7 +172,7 @@ export default function SurveyBuilder({ onSave, onCancel, initialData }: SurveyB
               <ArrowLeft className="w-5 h-5" />
             </button>
             <div>
-              <h3 className="text-xl font-bold">{isEditMode ? "Editar Encuesta" : "Nueva Encuesta"}</h3>
+              <h3 className="text-xl font-bold">{isEditMode ? "Editar Encuesta" : isDuplicate ? "Duplicar Encuesta" : "Nueva Encuesta"}</h3>
               <p className="text-sm text-[#64748b]">Título y descripción</p>
             </div>
           </div>
@@ -166,9 +190,14 @@ export default function SurveyBuilder({ onSave, onCancel, initialData }: SurveyB
               <label className="block text-xs font-bold uppercase text-[#64748b] mb-2">Descripción (Opcional)</label>
               <textarea
                 value={description}
-                onChange={(e) => setDescription(e.target.value)}
+                onChange={(e) => {
+                  setDescription(e.target.value);
+                  e.target.style.height = "auto";
+                  e.target.style.height = e.target.scrollHeight + "px";
+                }}
                 rows={3}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:border-primary transition-colors resize-none"
+                style={{ minHeight: "80px" }}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:border-primary transition-colors resize-none overflow-hidden"
                 placeholder="Instrucciones o contexto para los participantes..."
               />
             </div>
@@ -218,17 +247,11 @@ export default function SurveyBuilder({ onSave, onCancel, initialData }: SurveyB
                     <label className="block text-xs font-bold uppercase text-[#64748b] mb-2">
                       Mensaje de bienvenida adicional <span className="normal-case text-[#94a3b8]">(Opcional)</span>
                     </label>
-                    <textarea
+                    <RichTextEditor
                       value={introMessage}
-                      onChange={(e) => {
-                        setIntroMessage(e.target.value);
-                        e.target.style.height = "auto";
-                        e.target.style.height = e.target.scrollHeight + "px";
-                      }}
-                      rows={3}
-                      style={{ minHeight: "80px" }}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary transition-colors resize-none overflow-hidden"
+                      onChange={setIntroMessage}
                       placeholder="Ej: Esta encuesta es completamente anónima. Tus respuestas nos ayudan a mejorar el ambiente de trabajo. Tómate entre 5 y 10 minutos para completarla."
+                      minHeight={100}
                     />
                   </div>
 
@@ -279,6 +302,39 @@ export default function SurveyBuilder({ onSave, onCancel, initialData }: SurveyB
                       </p>
                     </div>
                   )}
+                </div>
+              )}
+            </div>
+
+            {/* ── Plantilla de correo ───────────────────────────────────── */}
+            <div className="border border-slate-200 rounded-2xl overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setEmailExpanded((v) => !v)}
+                className="w-full flex items-center justify-between px-5 py-4 bg-slate-50 hover:bg-slate-100 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-[#1e293b]/10 rounded-xl flex items-center justify-center shrink-0">
+                    <Mail className="w-4 h-4 text-[#1e293b]" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm font-bold text-[#1e293b]">Correo de invitación</p>
+                    <p className="text-xs text-[#64748b]">Personaliza el correo que recibirán los participantes</p>
+                  </div>
+                </div>
+                <span className="text-xs font-bold text-[#64748b]">{emailExpanded ? "▲" : "▼"}</span>
+              </button>
+
+              {emailExpanded && (
+                <div className="px-5 py-5 border-t border-slate-200">
+                  <EmailTemplateEditor
+                    value={emailTemplate}
+                    onChange={setEmailTemplate}
+                    surveyTitle={title}
+                    surveyDescription={description}
+                    isReminder={false}
+                    surveyId={isEditMode ? initialData?.id : undefined}
+                  />
                 </div>
               )}
             </div>
@@ -409,9 +465,22 @@ export default function SurveyBuilder({ onSave, onCancel, initialData }: SurveyB
                   )}
                 </div>
 
-                <button onClick={() => removeQuestion(q.id)} className="text-error hover:bg-error/10 p-2 rounded-lg transition-colors shrink-0">
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <div className="flex flex-col gap-1 shrink-0">
+                  <button
+                    onClick={() => duplicateQuestion(q.id)}
+                    title="Duplicar pregunta"
+                    className="text-[#64748b] hover:text-primary hover:bg-primary/10 p-2 rounded-lg transition-colors"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => removeQuestion(q.id)}
+                    title="Eliminar pregunta"
+                    className="text-error hover:bg-error/10 p-2 rounded-lg transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             ))}
 

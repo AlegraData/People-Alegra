@@ -17,11 +17,14 @@ export async function GET(request: Request) {
     }
 
     const { searchParams } = new URL(request.url);
-    const page       = Math.max(1, parseInt(searchParams.get("page") ?? "1"));
+    const page        = Math.max(1, parseInt(searchParams.get("page") ?? "1"));
     const pageSizeRaw = searchParams.get("pageSize") ?? "25";
-    const search     = searchParams.get("search")?.trim() ?? "";
-    const sortByRaw  = searchParams.get("sortBy") ?? "nombre_completo";
-    const sortDir    = searchParams.get("sortDir") === "desc" ? "desc" : "asc";
+    const search      = searchParams.get("search")?.trim() ?? "";
+    const sortByRaw   = searchParams.get("sortBy") ?? "nombre_completo";
+    const sortDir     = searchParams.get("sortDir") === "desc" ? "desc" : "asc";
+    const equipo      = searchParams.get("equipo")?.trim() ?? "";
+    const fechaDesde  = searchParams.get("fechaDesde")?.trim() ?? "";
+    const fechaHasta  = searchParams.get("fechaHasta")?.trim() ?? "";
 
     const isAll    = pageSizeRaw === "all";
     const pageSize = isAll ? 0 : Math.min(100, parseInt(pageSizeRaw) || 25);
@@ -39,6 +42,9 @@ export async function GET(request: Request) {
         `nombre_completo.ilike.%${search}%,correo.ilike.%${search}%,equipo.ilike.%${search}%,cargo.ilike.%${search}%`
       );
     }
+    if (equipo)     query = query.eq("equipo", equipo);
+    if (fechaDesde) query = query.gte("fecha_original", fechaDesde);
+    if (fechaHasta) query = query.lte("fecha_original", fechaHasta);
 
     query = query.order(sortBy, { ascending: sortDir === "asc", nullsFirst: false });
 

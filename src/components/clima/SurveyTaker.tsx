@@ -13,6 +13,10 @@ type Phase = "intro" | "question" | "review" | "done";
 
 const DEFAULT_TERMS = "La información que proporciones en esta encuesta es completamente confidencial y será utilizada únicamente con fines de análisis organizacional. Tus respuestas individuales no serán compartidas con nadie y solo se procesarán de forma agregada.";
 
+function withExternalLinks(html: string): string {
+  return html.replace(/<a\s/gi, '<a target="_blank" rel="noopener noreferrer" ');
+}
+
 // ── Input según tipo de pregunta ──────────────────────────────────────────────
 function QuestionInput({
   q, value, onChange,
@@ -239,12 +243,23 @@ export default function SurveyTaker({ survey, onComplete, onCancel }: Props) {
               </p>
             )}
 
-            {/* Mensaje adicional */}
-            {survey.introMessage && (
+            {/* Mensaje adicional — renderiza HTML del editor */}
+            {survey.introMessage && survey.introMessage !== "<p></p>" && (
               <div className="bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 mb-6">
-                <p className="text-sm text-[#475569] leading-relaxed whitespace-pre-line">
-                  {survey.introMessage}
-                </p>
+                <div
+                  className="prose prose-sm max-w-none text-[#475569]
+                    prose-p:my-1 prose-p:leading-relaxed
+                    prose-h2:text-xl prose-h2:font-bold prose-h2:text-[#1e293b] prose-h2:mt-3 prose-h2:mb-1
+                    prose-h3:text-base prose-h3:font-bold prose-h3:text-[#1e293b] prose-h3:mt-2 prose-h3:mb-1
+                    prose-ul:my-1 prose-ol:my-1
+                    prose-li:my-0.5
+                    prose-a:text-primary prose-a:no-underline hover:prose-a:underline
+                    prose-strong:text-[#1e293b]
+                    prose-blockquote:border-primary/40 prose-blockquote:text-[#64748b]
+                    prose-code:bg-slate-200 prose-code:rounded prose-code:px-1 prose-code:text-xs
+                    prose-pre:bg-slate-100 prose-pre:text-sm [&_mark]:rounded [&_mark]:px-0.5"
+                  dangerouslySetInnerHTML={{ __html: withExternalLinks(survey.introMessage) }}
+                />
               </div>
             )}
 

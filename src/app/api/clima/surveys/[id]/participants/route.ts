@@ -88,3 +88,47 @@ export async function GET(
     return NextResponse.json({ error: "Error interno" }, { status: 500 });
   }
 }
+
+// POST: Agregar nuevos participantes a una encuesta existente
+export async function POST(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const supabase = await createClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user)
+      return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+
+    const { id: surveyId } = await params;
+    const { employeeIds } = await request.json();
+
+    if (!Array.isArray(employeeIds) || employeeIds.length === 0)
+      return NextResponse.json({ error: "Se requiere al menos un participante" }, { status: 400 });
+
+    // Ignorar los que ya están asignados (evitar duplicados)
+    const { data: existing } = await supabaseAdmin
+      .from("climate_survey_assignments")
+      .select("employee_id")
+      .eq("survey_id", surveyId)
+      .in("employee_id", employeeIds);
+
+    const existingIds = new Set((existing ?? []).map((a) => a.employee_id as string));
+    const newIds = (employeeIds as string[]).filter((id) => !existingIds.has(id));
+
+    if (newIds.length === 0)
+      return NextResponse.json({ added: 0, message: "Todos ya estaban asignados" });
+
+    const { error: insertError } = await supabaseAdmin
+      .from("climate_survey_assignments")
+      .insert(newIds.map((employeeId) => ({ survey_id: surveyId, employee_id: employeeId })));
+
+    if (insertError)
+      return NextResponse.json({ error: "Error al agregar participantes" }, { status: 500 });
+
+    return NextResponse.json({ added: newIds.length });
+  } catch (error) {
+    console.error("[POST /api/clima/surveys/[id]/participants]", error);
+    return NextResponse.json({ error: "Error interno" }, { status: 500 });
+  }
+}

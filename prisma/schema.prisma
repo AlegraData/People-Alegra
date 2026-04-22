@@ -76,11 +76,15 @@ model ClimateSurvey {
   description    String?
   questions      Json
   isActive       Boolean  @default(true)  @map("is_active")
-  introEnabled   Boolean  @default(true)  @map("intro_enabled")
-  introMessage   String?                  @map("intro_message")
-  termsEnabled   Boolean  @default(false) @map("terms_enabled")
-  termsText      String?                  @map("terms_text")
-  createdAt      DateTime @default(now()) @map("created_at")
+  introEnabled    Boolean  @default(true)  @map("intro_enabled")
+  introMessage    String?                  @map("intro_message")
+  termsEnabled    Boolean  @default(false) @map("terms_enabled")
+  termsText       String?                  @map("terms_text")
+  emailSubject    String?                  @map("email_subject")
+  emailBody       String?                  @map("email_body")
+  emailButtonText String?                  @map("email_button_text")
+  emailFooter     String?                  @map("email_footer")
+  createdAt       DateTime @default(now()) @map("created_at")
 
   responses   ClimateSurveyResponse[]
 

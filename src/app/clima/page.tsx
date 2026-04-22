@@ -12,7 +12,7 @@ import SurveyTaker       from "@/components/clima/SurveyTaker";
 import SurveyResults     from "@/components/clima/SurveyResults";
 import SurveyParticipants from "@/components/clima/SurveyParticipants";
 
-type ViewState = "list" | "create" | "edit" | "take" | "results" | "participants";
+type ViewState = "list" | "create" | "edit" | "duplicate" | "take" | "results" | "participants";
 type AdminMode = "manage" | "participate";
 
 export default function ClimaPage() {
@@ -153,6 +153,12 @@ export default function ClimaPage() {
     else handleCreateSurvey(formData);
   };
 
+  // ── Duplicar encuesta ────────────────────────────────────────────────────
+  const handleDuplicate = (survey: Survey) => {
+    setActiveSurvey(survey);
+    setViewState("duplicate");
+  };
+
   if (role === "loading" || loading) {
     return (
       <div className="flex-1 flex flex-col justify-center items-center min-h-[60vh]">
@@ -219,6 +225,7 @@ export default function ClimaPage() {
               surveys={surveys}
               onCreate={() => setViewState("create")}
               onEdit={(s) => { setActiveSurvey(s); setViewState("edit"); }}
+              onDuplicate={handleDuplicate}
               onViewResults={(s) => { setActiveSurvey(s); setViewState("results"); }}
               onManageParticipants={(s) => { setActiveSurvey(s); setViewState("participants"); }}
               onDelete={handleDeleteSurvey}
@@ -251,6 +258,16 @@ export default function ClimaPage() {
           onSave={handleSave}
           onCancel={goToList}
           initialData={activeSurvey}
+        />
+      )}
+
+      {/* ── Duplicar encuesta ─────────────────────────────────────────────── */}
+      {viewState === "duplicate" && activeSurvey && role === "admin" && (
+        <SurveyBuilder
+          onSave={handleSave}
+          onCancel={goToList}
+          initialData={activeSurvey}
+          isDuplicate
         />
       )}
 

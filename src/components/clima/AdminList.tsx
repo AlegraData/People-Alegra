@@ -1,12 +1,13 @@
 "use client";
 import { useState, useEffect } from "react";
-import { ClipboardList, Download, Plus, Pencil, Trash2, Users2, Lock, Unlock } from "lucide-react";
+import { ClipboardList, Copy, Download, Plus, Pencil, Trash2, Users2, Lock, Unlock } from "lucide-react";
 import type { Survey } from "@/types/clima";
 
 interface AdminListProps {
   surveys: Survey[];
   onCreate: () => void;
   onEdit: (survey: Survey) => void;
+  onDuplicate: (survey: Survey) => void;
   onViewResults: (survey: Survey) => void;
   onManageParticipants: (survey: Survey) => void;
   onDelete: (id: string) => void;
@@ -31,7 +32,7 @@ function CompletionBadge({ responses, assignments }: { responses: number; assign
 }
 
 export default function AdminList({
-  surveys, onCreate, onEdit, onViewResults, onManageParticipants, onDelete, onToggleStatus,
+  surveys, onCreate, onEdit, onDuplicate, onViewResults, onManageParticipants, onDelete, onToggleStatus,
 }: AdminListProps) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
@@ -108,6 +109,14 @@ export default function AdminList({
                         className="p-2 rounded-lg border border-transparent hover:border-slate-200 hover:bg-white text-[#64748b] hover:text-primary transition-all"
                       >
                         <Pencil className="w-4 h-4" />
+                      </button>
+                      {/* Duplicar */}
+                      <button
+                        onClick={() => onDuplicate(s)}
+                        title="Duplicar encuesta"
+                        className="p-2 rounded-lg border border-transparent hover:border-slate-200 hover:bg-white text-[#64748b] hover:text-primary transition-all"
+                      >
+                        <Copy className="w-4 h-4" />
                       </button>
                       {/* Participantes */}
                       <button
