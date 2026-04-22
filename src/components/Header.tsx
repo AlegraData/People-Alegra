@@ -18,6 +18,7 @@ export default function Header() {
   const [cargo, setCargo]                 = useState<string>("");
   const [pendingSurveys, setPendingSurveys] = useState<PendingSurvey[]>([]);
   const [showNotif, setShowNotif]         = useState(false);
+  const [avatarError, setAvatarError]     = useState(false);
   const notifRef                          = useRef<HTMLDivElement>(null);
   const supabase                          = createClient();
   const router                            = useRouter();
@@ -106,7 +107,17 @@ export default function Header() {
 
   if (!user) return null;
 
-  const subtitle      = cargo || role;
+  const getInitials = (name: string) => {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return "?";
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  };
+
+  const avatarUrl   = user.user_metadata?.avatar_url as string | undefined;
+  const displayName = user.user_metadata?.full_name || user.email || "";
+  const initials    = getInitials(displayName);
+  const subtitle    = cargo || role;
   const hasUnread     = pendingSurveys.length > 0;
   const badgeCount    = pendingSurveys.length > 9 ? "9+" : String(pendingSurveys.length);
 
@@ -235,11 +246,18 @@ export default function Header() {
             )}
           </div>
           <div className="relative group/profile cursor-pointer">
-            <img
-              src={user.user_metadata?.avatar_url || "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=150&h=150"}
-              alt="Perfil"
-              className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-50 transition-all group-hover:ring-[#00D6BC]/20"
-            />
+            {avatarUrl && !avatarError ? (
+              <img
+                src={avatarUrl}
+                alt="Perfil"
+                onError={() => setAvatarError(true)}
+                className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-50 transition-all group-hover:ring-[#00D6BC]/20"
+              />
+            ) : (
+              <div className="w-10 h-10 rounded-full ring-2 ring-slate-50 transition-all group-hover:ring-[#00D6BC]/20 bg-primary/20 flex items-center justify-center">
+                <span className="text-sm font-black text-primary select-none">{initials}</span>
+              </div>
+            )}
             <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-[#10B981] rounded-full border-2 border-white" />
 
             {/* Menú desplegable */}
