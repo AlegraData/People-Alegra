@@ -55,14 +55,16 @@ export default function LoginPage() {
 
   const handleGoogleLogin = async () => {
     const origin = window.location.origin;
+    const next   = new URLSearchParams(window.location.search).get("next") ?? "/";
+    const safeNext = next.startsWith("/") && !next.startsWith("//") ? next : "/";
     await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { 
-        redirectTo: `${origin}/auth/callback`,
+      options: {
+        redirectTo: `${origin}/auth/callback?next=${encodeURIComponent(safeNext)}`,
         queryParams: {
-          prompt: 'select_account',
-          access_type: 'offline',
-        }
+          prompt:      "select_account",
+          access_type: "offline",
+        },
       },
     });
   };

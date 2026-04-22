@@ -63,11 +63,15 @@ export async function proxy(request: NextRequest) {
   }
 
   if (!user && !isPublic) {
-    return NextResponse.redirect(new URL("/login", origin));
+    const loginUrl = new URL("/login", origin);
+    loginUrl.searchParams.set("next", pathname);
+    return NextResponse.redirect(loginUrl);
   }
 
   if (user && pathname === "/login") {
-    return NextResponse.redirect(new URL("/", origin));
+    const next = request.nextUrl.searchParams.get("next");
+    const dest = next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
+    return NextResponse.redirect(new URL(dest, origin));
   }
 
   return supabaseResponse;

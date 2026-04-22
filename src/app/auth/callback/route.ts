@@ -29,9 +29,9 @@ export async function GET(request: NextRequest) {
       }
     );
 
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
 
-    if (!error) {
+    if (!exchangeError) {
       // Registrar / actualizar el usuario en user_roles
       try {
         const { data: { user } } = await supabase.auth.getUser();
@@ -95,5 +95,10 @@ export async function GET(request: NextRequest) {
   const proto =
     request.headers.get("x-forwarded-proto")?.split(",")[0] ??
     request.nextUrl.protocol.replace(":", "");
-  return NextResponse.redirect(`${proto}://${host}/login?error=auth_callback_error`);
+
+  // Redirigir al login con el mensaje de error y preservando next para reintento
+  const errUrl = new URL("/login", `${proto}://${host}`);
+  errUrl.searchParams.set("error", "auth_callback_error");
+  if (next && next !== "/") errUrl.searchParams.set("next", next);
+  return NextResponse.redirect(errUrl);
 }
