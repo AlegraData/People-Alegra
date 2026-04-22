@@ -172,29 +172,13 @@ export default function Home() {
       })()}
 
       {/* Módulos */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        {moduleConfigs === null ? (
-          /* Skeletons mientras carga — evita el flash de cards que luego desaparecen */
-          [0, 1, 2].map((i) => (
-            <div key={i} className="bg-white border border-slate-100 rounded-[2rem] p-8 shadow-sm flex flex-col animate-pulse">
-              <div className="bg-slate-100 w-14 h-14 rounded-2xl mb-8 shrink-0" />
-              <div className="bg-slate-100 h-6 w-2/3 rounded-lg mb-4" />
-              <div className="space-y-2 mb-8 flex-1">
-                <div className="bg-slate-100 h-3.5 rounded-lg" />
-                <div className="bg-slate-100 h-3.5 w-5/6 rounded-lg" />
-                <div className="bg-slate-100 h-3.5 w-4/6 rounded-lg" />
-              </div>
-              <div className="pt-6 border-t border-slate-50">
-                <div className="flex justify-between mb-6">
-                  <div className="bg-slate-100 h-3 w-12 rounded" />
-                  <div className="bg-slate-100 h-5 w-14 rounded-full" />
-                </div>
-                <div className="bg-slate-100 h-12 rounded-2xl" />
-              </div>
-            </div>
-          ))
-        ) : (
-          ALL_MODULES.filter((m) => moduleConfigs.some((c) => c.id === m.id)).map((module) => (
+      {moduleConfigs === null ? (
+        <div className="flex justify-center py-12">
+          <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          {ALL_MODULES.filter((m) => moduleConfigs.some((c) => c.id === m.id)).map((module) => (
             <div
               key={module.id}
               className="group bg-white border border-slate-100 rounded-[2rem] p-8 shadow-sm card-shadow transition-all duration-500 flex flex-col border-b-4 hover:border-b-primary"
@@ -220,9 +204,9 @@ export default function Home() {
                 </Link>
               </div>
             </div>
-          ))
-        )}
-      </div>
+          ))}
+        </div>
+      )}
 
       {/* Modal encuestas pendientes del módulo */}
       {activeModule && (() => {
