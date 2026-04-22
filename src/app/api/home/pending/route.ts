@@ -55,7 +55,7 @@ export async function GET() {
 
     const pendingClima: PendingItem[] = visibleClima
       .filter((s) => !respondedClimaIds.has(s.id))
-      .map((s) => ({ id: s.id, title: s.title, type: "clima", href: "/clima" }));
+      .map((s) => ({ id: s.id, title: s.title, type: "clima", href: `/clima/encuesta/${s.id}` }));
 
     // Encuestas eNPS pendientes (asignadas, sin completar, activas)
     const enpsRaw = await prisma.enpsSurveyAssignment.findMany({
