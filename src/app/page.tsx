@@ -171,37 +171,57 @@ export default function Home() {
         );
       })()}
 
-      {/* Módulos — solo se muestran los que la API devuelve (activos y con acceso por rol) */}
+      {/* Módulos */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        {ALL_MODULES.filter((m) =>
-          moduleConfigs === null || moduleConfigs.some((c) => c.id === m.id)
-        ).map((module) => (
-          <div
-            key={module.id}
-            className="group bg-white border border-slate-100 rounded-[2rem] p-8 shadow-sm card-shadow transition-all duration-500 flex flex-col border-b-4 hover:border-b-primary"
-          >
-            <div className="bg-[#00D6BC]/10 w-14 h-14 rounded-2xl flex items-center justify-center mb-8 group-hover:scale-110 transition-transform duration-500">
-              {module.icon}
-            </div>
-            <h3 className="text-2xl font-bold text-[#1e293b] mb-4">{module.title}</h3>
-            <p className="text-[#64748b] text-sm leading-relaxed mb-8 flex-1">{module.description}</p>
-            <div className="pt-6 mt-auto border-t border-slate-50">
-              <div className="flex justify-between items-center mb-6">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-[#64748b]">Estado</span>
-                <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase bg-[#10B981]/10 text-[#10B981]">
-                  Activo
-                </span>
+        {moduleConfigs === null ? (
+          /* Skeletons mientras carga — evita el flash de cards que luego desaparecen */
+          [0, 1, 2].map((i) => (
+            <div key={i} className="bg-white border border-slate-100 rounded-[2rem] p-8 shadow-sm flex flex-col animate-pulse">
+              <div className="bg-slate-100 w-14 h-14 rounded-2xl mb-8 shrink-0" />
+              <div className="bg-slate-100 h-6 w-2/3 rounded-lg mb-4" />
+              <div className="space-y-2 mb-8 flex-1">
+                <div className="bg-slate-100 h-3.5 rounded-lg" />
+                <div className="bg-slate-100 h-3.5 w-5/6 rounded-lg" />
+                <div className="bg-slate-100 h-3.5 w-4/6 rounded-lg" />
               </div>
-              <Link
-                href={module.href}
-                className="w-full flex items-center justify-center gap-2 py-4 px-6 rounded-2xl font-bold text-sm transition-all bg-[#1e293b] text-white hover:bg-primary hover:shadow-lg hover:shadow-[#00D6BC]/20"
-              >
-                {module.buttonText}
-                <ChevronRight className="w-4 h-4" />
-              </Link>
+              <div className="pt-6 border-t border-slate-50">
+                <div className="flex justify-between mb-6">
+                  <div className="bg-slate-100 h-3 w-12 rounded" />
+                  <div className="bg-slate-100 h-5 w-14 rounded-full" />
+                </div>
+                <div className="bg-slate-100 h-12 rounded-2xl" />
+              </div>
             </div>
-          </div>
-        ))}
+          ))
+        ) : (
+          ALL_MODULES.filter((m) => moduleConfigs.some((c) => c.id === m.id)).map((module) => (
+            <div
+              key={module.id}
+              className="group bg-white border border-slate-100 rounded-[2rem] p-8 shadow-sm card-shadow transition-all duration-500 flex flex-col border-b-4 hover:border-b-primary"
+            >
+              <div className="bg-[#00D6BC]/10 w-14 h-14 rounded-2xl flex items-center justify-center mb-8 group-hover:scale-110 transition-transform duration-500">
+                {module.icon}
+              </div>
+              <h3 className="text-2xl font-bold text-[#1e293b] mb-4">{module.title}</h3>
+              <p className="text-[#64748b] text-sm leading-relaxed mb-8 flex-1">{module.description}</p>
+              <div className="pt-6 mt-auto border-t border-slate-50">
+                <div className="flex justify-between items-center mb-6">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-[#64748b]">Estado</span>
+                  <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase bg-[#10B981]/10 text-[#10B981]">
+                    Activo
+                  </span>
+                </div>
+                <Link
+                  href={module.href}
+                  className="w-full flex items-center justify-center gap-2 py-4 px-6 rounded-2xl font-bold text-sm transition-all bg-[#1e293b] text-white hover:bg-primary hover:shadow-lg hover:shadow-[#00D6BC]/20"
+                >
+                  {module.buttonText}
+                  <ChevronRight className="w-4 h-4" />
+                </Link>
+              </div>
+            </div>
+          ))
+        )}
       </div>
 
       {/* Modal encuestas pendientes del módulo */}
