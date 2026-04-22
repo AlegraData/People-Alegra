@@ -327,6 +327,11 @@ export default function SurveyBuilder({ onSave, onCancel, initialData, isDuplica
 
               {emailExpanded && (
                 <div className="px-5 py-5 border-t border-slate-200">
+                  {!isEditMode && (
+                    <div className="mb-4 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-700 font-medium">
+                      El correo de prueba apuntará a la lista de encuestas hasta que guardes esta encuesta. Una vez creada, el correo real incluirá el enlace directo.
+                    </div>
+                  )}
                   <EmailTemplateEditor
                     value={emailTemplate}
                     onChange={setEmailTemplate}

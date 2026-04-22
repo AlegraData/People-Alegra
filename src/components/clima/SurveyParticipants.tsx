@@ -35,6 +35,11 @@ export default function SurveyParticipants({ survey, onBack, onSurveyUpdated }: 
   }));
   const [reminderSending, setReminderSending] = useState(false);
 
+  // ── Modal de invitación (post agregar participantes) ─────────────────────
+  const [invitationIds, setInvitationIds]     = useState<string[] | null>(null);
+  const [invitationTemplate, setInvitationTemplate] = useState<EmailTemplateConfig>({});
+  const [invitationSending, setInvitationSending]   = useState(false);
+
   const fetchParticipants = useCallback(async () => {
     setLoading(true);
     try {
@@ -90,13 +95,50 @@ export default function SurveyParticipants({ survey, onBack, onSurveyUpdated }: 
         body: JSON.stringify({ employeeIds: Array.from(toAdd.keys()) }),
       });
       if (res.ok) {
+        const data = await res.json();
         setToAdd(new Map());
         setMode("list");
         await fetchParticipants();
         onSurveyUpdated();
+        if (data.addedIds?.length > 0) {
+          setInvitationTemplate({
+            subject:    survey.emailSubject    ?? null,
+            body:       survey.emailBody       ?? null,
+            buttonText: survey.emailButtonText ?? null,
+            footer:     survey.emailFooter     ?? null,
+          });
+          setInvitationIds(data.addedIds);
+        }
       }
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const handleSendInvitation = async () => {
+    if (!invitationIds) return;
+    setInvitationSending(true);
+    try {
+      const res = await fetch("/api/email/survey-invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          surveyId:    survey.id,
+          employeeIds: invitationIds,
+          isReminder:  false,
+          template:    invitationTemplate,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        const count = data.sent ?? invitationIds.length;
+        showEmailStatus("success", `Invitación enviada a ${count} participante${count !== 1 ? "s" : ""}.`);
+      } else {
+        showEmailStatus("error", data.error ?? "Error al enviar correos.");
+      }
+    } finally {
+      setInvitationSending(false);
+      setInvitationIds(null);
     }
   };
 
@@ -354,6 +396,63 @@ export default function SurveyParticipants({ survey, onBack, onSurveyUpdated }: 
           </table>
         </div>
       </div>
+
+      {/* ── Modal de invitación (post agregar) ────────────────────────────── */}
+      {invitationIds && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+
+            <div className="flex items-center justify-between px-8 py-5 border-b border-slate-100 shrink-0">
+              <div>
+                <h4 className="text-lg font-bold text-[#1e293b]">
+                  Enviar invitación a {invitationIds.length} nuevo{invitationIds.length !== 1 ? "s" : ""} participante{invitationIds.length !== 1 ? "s" : ""}
+                </h4>
+                <p className="text-xs text-[#64748b] mt-0.5">
+                  Personaliza el correo de invitación o saltea este paso
+                </p>
+              </div>
+              <button
+                onClick={() => setInvitationIds(null)}
+                className="p-2 hover:bg-slate-100 rounded-full transition-colors"
+              >
+                <X className="w-5 h-5 text-[#64748b]" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-8 py-6">
+              <EmailTemplateEditor
+                value={invitationTemplate}
+                onChange={setInvitationTemplate}
+                surveyTitle={survey.title}
+                surveyDescription={survey.description}
+                isReminder={false}
+                surveyId={survey.id}
+              />
+            </div>
+
+            <div className="flex items-center justify-between px-8 py-5 border-t border-slate-100 shrink-0 gap-4">
+              <button
+                onClick={() => setInvitationIds(null)}
+                className="text-sm font-bold text-[#64748b] hover:text-[#1e293b] transition-colors"
+              >
+                No enviar correo
+              </button>
+              <button
+                onClick={handleSendInvitation}
+                disabled={invitationSending}
+                className="flex items-center gap-2 px-6 py-2.5 bg-primary text-white rounded-xl text-sm font-bold hover:shadow-lg hover:shadow-primary/20 transition-all disabled:opacity-50"
+              >
+                {invitationSending
+                  ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  : <Send className="w-4 h-4" />}
+                {invitationSending
+                  ? "Enviando..."
+                  : `Enviar a ${invitationIds.length} participante${invitationIds.length !== 1 ? "s" : ""}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Modal de recordatorio ──────────────────────────────────────────── */}
       {reminderTarget && (

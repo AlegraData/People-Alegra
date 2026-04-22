@@ -36,7 +36,7 @@ export async function GET(
       .in("id", employeeIds);
 
     const idToEmail = new Map((employees ?? []).map((e) => [e.id as string, e.email as string]));
-    const emails = [...idToEmail.values()];
+    const emails = Array.from(idToEmail.values());
 
     // 3. Detalles desde la vista
     const { data: empDetails } = emails.length
@@ -126,7 +126,7 @@ export async function POST(
     if (insertError)
       return NextResponse.json({ error: "Error al agregar participantes" }, { status: 500 });
 
-    return NextResponse.json({ added: newIds.length });
+    return NextResponse.json({ added: newIds.length, addedIds: newIds });
   } catch (error) {
     console.error("[POST /api/clima/surveys/[id]/participants]", error);
     return NextResponse.json({ error: "Error interno" }, { status: 500 });
