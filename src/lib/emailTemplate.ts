@@ -72,17 +72,6 @@ export function buildEmailHtml(cfg: EmailTemplateConfig, ctx: EmailTemplateConte
           <tr>
             <td style="background:#ffffff;padding:40px 40px 32px;">
 
-              <!-- Badge tipo -->
-              <table cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
-                <tr>
-                  <td style="background:rgba(0,214,188,0.1);border-radius:20px;padding:5px 14px;">
-                    <span style="font-size:11px;font-weight:800;color:#00b8a3;text-transform:uppercase;letter-spacing:1px;">
-                      ${action} · Encuesta de Clima
-                    </span>
-                  </td>
-                </tr>
-              </table>
-
               <!-- Contenido personalizado -->
               <div style="font-family:'Segoe UI',Arial,sans-serif;font-size:15px;color:#64748b;line-height:1.6;margin-bottom:24px;">
                 ${bodyHtml}
