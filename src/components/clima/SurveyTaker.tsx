@@ -501,11 +501,9 @@ export default function SurveyTaker({ survey, onComplete, onCancel }: Props) {
           />
 
           {/* Hint */}
-          {answers[currentQ.id] === undefined && (
-            <p className={`text-center text-xs mt-6 ${currentQ.required ? "text-red-400 font-semibold" : "text-[#94a3b8]"}`}>
-              {currentQ.required
-                ? "* Esta pregunta es obligatoria"
-                : "Selecciona una opción — o avanza sin responder"}
+          {answers[currentQ.id] === undefined && !currentQ.required && (
+            <p className="text-center text-xs mt-6 text-[#94a3b8]">
+              Selecciona una opción — o avanza sin responder
             </p>
           )}
         </div>
