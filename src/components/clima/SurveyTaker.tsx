@@ -485,12 +485,10 @@ export default function SurveyTaker({ survey, onComplete, onCancel }: Props) {
               {currentQ.text || (
                 <span className="text-slate-400 italic">Sin texto</span>
               )}
+              {currentQ.required && (
+                <span className="inline-block ml-1 animate-pulse text-primary text-2xl leading-none align-middle select-none">*</span>
+              )}
             </p>
-            {currentQ.required && (
-              <span className="inline-block mt-2 text-[10px] font-black uppercase text-red-500 bg-red-50 px-2 py-0.5 rounded-md">
-                * Obligatoria
-              </span>
-            )}
           </div>
 
           {/* Input */}
