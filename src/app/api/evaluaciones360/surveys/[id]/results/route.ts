@@ -24,7 +24,7 @@ export async function GET(_req: Request, { params }: Ctx) {
       where: { evaluationId: id, status: "submitted" },
     });
 
-    const questions = evaluation.questions as Eval360Question[];
+    const questions = evaluation.questions as unknown as Eval360Question[];
     const typeWeights: Record<EvalType, number> = {
       ascendente:     evaluation.weightAscendente,
       descendente:    evaluation.weightDescendente,
