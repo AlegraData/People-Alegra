@@ -21,7 +21,7 @@ export default function EmployeeSearchCombobox({
   const [loading, setLoading]   = useState(false);
   const [selected, setSelected] = useState<EmployeeResult | null>(null);
   const [showDrop, setShowDrop] = useState(false);
-  const debounceRef             = useRef<NodeJS.Timeout>();
+  const debounceRef             = useRef<NodeJS.Timeout | undefined>(undefined);
 
   useEffect(() => () => clearTimeout(debounceRef.current), []);
 
