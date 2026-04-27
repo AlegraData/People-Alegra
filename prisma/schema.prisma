@@ -150,3 +150,53 @@ model EnpsSurveyResponse {
   @@unique([surveyId, employeeId])
   @@map("enps_survey_responses")
 }
+
+// ── Evaluaciones 360° ─────────────────────────────────────────────────────────
+
+model Evaluation360 {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title                String
+  description          String?
+  instructions         String?
+  status               String   @default("active")
+  hasAscendente        Boolean  @default(true)  @map("has_ascendente")
+  hasDescendente       Boolean  @default(true)  @map("has_descendente")
+  hasParalela          Boolean  @default(true)  @map("has_paralela")
+  hasAutoevaluacion    Boolean  @default(true)  @map("has_autoevaluacion")
+  weightAscendente     Float    @default(25)    @map("weight_ascendente")
+  weightDescendente    Float    @default(25)    @map("weight_descendente")
+  weightParalela       Float    @default(25)    @map("weight_paralela")
+  weightAutoevaluacion Float    @default(25)    @map("weight_autoevaluacion")
+  questions            Json
+  emailSubject         String?  @map("email_subject")
+  emailBody            String?  @map("email_body")
+  emailButtonText      String?  @map("email_button_text")
+  emailFooter          String?  @map("email_footer")
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  assignments          Evaluation360Assignment[]
+
+  @@map("evaluations_360")
+}
+
+model Evaluation360Assignment {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  evaluationId   String    @map("evaluation_id") @db.Uuid
+  evaluatorEmail String    @map("evaluator_email")
+  evaluatorName  String?   @map("evaluator_name")
+  evaluateeEmail String    @map("evaluatee_email")
+  evaluateeName  String?   @map("evaluatee_name")
+  team           String?
+  evaluationType String    @map("evaluation_type")
+  status         String    @default("pending")
+  draftAnswers   Json?     @map("draft_answers")
+  finalAnswers   Json?     @map("final_answers")
+  savedAt        DateTime? @map("saved_at")
+  completedAt    DateTime? @map("completed_at")
+  submittedAt    DateTime? @map("submitted_at")
+
+  evaluation     Evaluation360 @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+
+  @@unique([evaluationId, evaluatorEmail, evaluateeEmail, evaluationType])
+  @@map("evaluation_360_assignments")
+}

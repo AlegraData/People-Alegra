@@ -64,7 +64,7 @@ const ALL_MODULES = [
     description: "Envía y recibe retroalimentación constructiva de tus compañeros y líderes de equipo.",
     icon: <UserRound className="w-6 h-6 text-primary" />,
     buttonText: "Realizar Evaluación",
-    href: "/360",
+    href: "/evaluaciones360",
   },
 ];
 

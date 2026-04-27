@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
-import { Bell, LogOut, Shield, ClipboardList, TrendingUp, ChevronRight, CheckCircle2 } from "lucide-react";
+import { Bell, LogOut, Shield, ClipboardList, TrendingUp, Users, ChevronRight, CheckCircle2 } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
@@ -9,7 +9,7 @@ interface PendingSurvey {
   id: string;
   title: string;
   description: string;
-  module: "clima" | "enps";
+  module: "clima" | "enps" | "360";
 }
 
 export default function Header() {
@@ -67,6 +67,9 @@ export default function Header() {
       if (activeModuleIds.has("enps")) {
         surveyFetches.push(fetch("/api/enps/surveys").then((r) => ["enps", r] as [string, Response]));
       }
+      if (activeModuleIds.has("360")) {
+        surveyFetches.push(fetch("/api/evaluaciones360/surveys").then((r) => ["360", r] as [string, Response]));
+      }
 
       const surveyResults = await Promise.allSettled(surveyFetches);
       const pending: PendingSurvey[] = [];
@@ -77,11 +80,23 @@ export default function Header() {
         if (!res.ok) continue;
         const surveys = await res.json();
         if (!Array.isArray(surveys)) continue;
-        surveys
-          .filter((s: any) => s.isActive && !s.hasResponded)
-          .forEach((s: any) =>
-            pending.push({ id: s.id, title: s.title, description: s.description ?? "", module: mod as "clima" | "enps" })
-          );
+        if (mod === "360") {
+          // For 360, only count evaluations where the current user has their OWN pending assignments
+          surveys
+            .filter((s: any) => {
+              const myPending = (s.myAssignments ?? []).filter((a: any) => a.status !== "submitted").length;
+              return s.status === "active" && myPending > 0;
+            })
+            .forEach((s: any) =>
+              pending.push({ id: s.id, title: s.title, description: s.description ?? "", module: "360" })
+            );
+        } else {
+          surveys
+            .filter((s: any) => s.isActive && !s.hasResponded)
+            .forEach((s: any) =>
+              pending.push({ id: s.id, title: s.title, description: s.description ?? "", module: mod as "clima" | "enps" })
+            );
+        }
       }
 
       setPendingSurveys(pending);
@@ -188,15 +203,14 @@ export default function Header() {
                   {pendingSurveys.map((s) => (
                     <li key={`${s.module}-${s.id}`}>
                       <Link
-                        href={s.module === "enps" ? "/enps" : "/clima"}
+                        href={s.module === "enps" ? "/enps" : s.module === "360" ? "/evaluaciones360" : "/clima"}
                         onClick={() => setShowNotif(false)}
                         className="flex items-start gap-3 px-5 py-4 hover:bg-slate-50 transition-colors"
                       >
                         <div className="w-9 h-9 bg-primary/10 rounded-xl flex items-center justify-center shrink-0 mt-0.5">
-                          {s.module === "enps"
-                            ? <TrendingUp className="w-4 h-4 text-primary" />
-                            : <ClipboardList className="w-4 h-4 text-primary" />
-                          }
+                          {s.module === "enps"   ? <TrendingUp className="w-4 h-4 text-primary" />
+                          : s.module === "360"   ? <Users className="w-4 h-4 text-primary" />
+                          : <ClipboardList className="w-4 h-4 text-primary" />}
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-bold text-[#1e293b] truncate">{s.title}</p>
@@ -204,7 +218,7 @@ export default function Header() {
                             {s.description || (s.module === "enps" ? "Encuesta eNPS pendiente" : "Encuesta de clima pendiente")}
                           </p>
                           <p className="text-[10px] font-black text-primary uppercase tracking-wider mt-1">
-                            {s.module === "enps" ? "eNPS" : "Clima"} · Pendiente · Clic para responder
+                            {s.module === "enps" ? "eNPS" : s.module === "360" ? "360°" : "Clima"} · Pendiente · Clic para responder
                           </p>
                         </div>
                         <ChevronRight className="w-4 h-4 text-slate-300 shrink-0 mt-1" />
@@ -225,6 +239,11 @@ export default function Header() {
                   {pendingSurveys.some((s) => s.module === "enps") && (
                     <Link href="/enps" onClick={() => setShowNotif(false)} className="text-xs font-black text-primary hover:underline">
                       Ver eNPS →
+                    </Link>
+                  )}
+                  {pendingSurveys.some((s) => s.module === "360") && (
+                    <Link href="/evaluaciones360" onClick={() => setShowNotif(false)} className="text-xs font-black text-primary hover:underline">
+                      Ver 360° →
                     </Link>
                   )}
                 </div>
