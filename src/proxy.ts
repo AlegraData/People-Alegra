@@ -87,17 +87,29 @@ export async function proxy(request: NextRequest) {
     )?.[1];
 
     if (moduleId) {
-      const { data, error } = await supabase
-        .from("module_config")
-        .select("is_active")
-        .eq("id", moduleId)
-        .single();
-
-      // Only block if the row exists and is explicitly inactive.
-      // On query error (transient DB issue, missing row) we fail open to
-      // avoid locking users out when the DB is temporarily unavailable.
-      if (!error && data?.is_active === false) {
-        return NextResponse.redirect(new URL("/", origin));
+      // Use the service role key so this query bypasses RLS on module_config,
+      // matching the same access level used by /api/home (supabaseAdmin).
+      // Plain fetch works in both Edge and Node.js runtimes.
+      try {
+        const res = await fetch(
+          `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/module_config?id=eq.${moduleId}&select=is_active`,
+          {
+            headers: {
+              apikey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+              Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY ?? ""}`,
+              Accept: "application/json",
+            },
+            cache: "no-store",
+          }
+        );
+        if (res.ok) {
+          const rows: Array<{ is_active: boolean }> = await res.json();
+          if (rows[0]?.is_active === false) {
+            return NextResponse.redirect(new URL("/", origin));
+          }
+        }
+      } catch {
+        // Fail open: transient error should not lock users out
       }
     }
   }
