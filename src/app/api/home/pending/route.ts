@@ -7,7 +7,7 @@ import prisma from "@/lib/prisma";
 export interface PendingItem {
   id: string;
   title: string;
-  type: "clima" | "enps";
+  type: "clima" | "enps" | "360";
   href: string;
 }
 

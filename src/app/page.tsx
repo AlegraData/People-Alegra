@@ -1,15 +1,16 @@
 "use client";
 import { useState, useEffect } from "react";
-import { TrendingUp, MessageSquare, UserRound, ChevronRight, AlertCircle, X, ArrowRight } from "lucide-react";
+import { TrendingUp, MessageSquare, UserRound, ChevronRight, X, ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { createClient } from "@/utils/supabase/client";
 import type { PendingItem } from "@/app/api/home/pending/route";
 
-type ModuleKey = "clima" | "enps";
+type ModuleKey = "clima" | "enps" | "360";
 
 const pendingModuleConfig: Record<ModuleKey, {
   label: string;
   sublabel: string;
+  itemName: string;
   icon: React.ReactNode;
   cardBg: string;
   badgeBg: string;
@@ -20,22 +21,35 @@ const pendingModuleConfig: Record<ModuleKey, {
   clima: {
     label:     "Clima Organizacional",
     sublabel:  "Encuestas de cultura y bienestar",
-    icon:      <MessageSquare className="w-6 h-6" />,
+    itemName:  "encuesta",
+    icon:      <MessageSquare className="w-4 h-4" />,
     cardBg:    "bg-blue-50 border-blue-100",
     badgeBg:   "bg-blue-100",
-    badgeText: "text-blue-700",
-    dotColor:  "bg-blue-400",
+    badgeText: "text-blue-600",
+    dotColor:  "bg-blue-500",
     btnBg:     "bg-blue-600 hover:bg-blue-700",
   },
   enps: {
     label:     "eNPS",
     sublabel:  "Net Promoter Score interno",
-    icon:      <TrendingUp className="w-6 h-6" />,
+    itemName:  "encuesta",
+    icon:      <TrendingUp className="w-4 h-4" />,
     cardBg:    "bg-violet-50 border-violet-100",
     badgeBg:   "bg-violet-100",
-    badgeText: "text-violet-700",
-    dotColor:  "bg-violet-400",
+    badgeText: "text-violet-600",
+    dotColor:  "bg-violet-500",
     btnBg:     "bg-violet-600 hover:bg-violet-700",
+  },
+  "360": {
+    label:     "Evaluaciones 360°",
+    sublabel:  "Retroalimentación entre pares y líderes",
+    itemName:  "evaluación",
+    icon:      <UserRound className="w-4 h-4" />,
+    cardBg:    "bg-emerald-50 border-emerald-100",
+    badgeBg:   "bg-emerald-100",
+    badgeText: "text-emerald-600",
+    dotColor:  "bg-emerald-500",
+    btnBg:     "bg-emerald-600 hover:bg-emerald-700",
   },
 };
 
@@ -71,7 +85,6 @@ const ALL_MODULES = [
 export default function Home() {
   const [firstName, setFirstName]               = useState<string>("");
   const [pending, setPending]                   = useState<PendingItem[]>([]);
-  const [loadingPending, setLoadingPending]     = useState(true);
   const [activeModule, setActiveModule]         = useState<ModuleKey | null>(null);
   const [moduleConfigs, setModuleConfigs]       = useState<ModuleConfig[] | null>(null);
 
@@ -86,15 +99,13 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    fetch("/api/home/pending")
-      .then((r) => r.json())
-      .then((data) => setPending(data.pending ?? []))
-      .catch(() => setPending([]))
-      .finally(() => setLoadingPending(false));
-    fetch("/api/modules")
-      .then((r) => r.ok ? r.json() : [])
-      .then((data: ModuleConfig[]) => setModuleConfigs(data))
-      .catch(() => setModuleConfigs([]));
+    fetch("/api/home")
+      .then((r) => r.ok ? r.json() : { modules: [], pending: [] })
+      .then(({ modules, pending }: { modules: ModuleConfig[]; pending: PendingItem[] }) => {
+        setModuleConfigs(modules);
+        setPending(pending);
+      })
+      .catch(() => { setModuleConfigs([]); setPending([]); });
   }, []);
 
   return (
@@ -111,59 +122,55 @@ export default function Home() {
       </div>
 
       {/* Encuestas pendientes — agrupadas por módulo */}
-      {!loadingPending && pending.length > 0 && (() => {
+      {moduleConfigs !== null && pending.length > 0 && (() => {
         const grouped = pending.reduce<Record<ModuleKey, PendingItem[]>>(
-          (acc, item) => { acc[item.type].push(item); return acc; },
-          { clima: [], enps: [] }
+          (acc, item) => { acc[item.type]?.push(item); return acc; },
+          { clima: [], enps: [], "360": [] }
         );
         const activeGroups = (Object.entries(grouped) as [ModuleKey, PendingItem[]][]).filter(([, items]) => items.length > 0);
 
         return (
-          <div className="mb-10">
-            <div className="flex items-center gap-2 mb-5">
-              <AlertCircle className="w-4 h-4 text-amber-500" />
-              <h3 className="text-sm font-bold text-[#1e293b] uppercase tracking-wider">
-                Tienes {pending.length} encuesta{pending.length > 1 ? "s" : ""} pendiente{pending.length > 1 ? "s" : ""}
-              </h3>
+          <div className="mb-8">
+            {/* Header minimalista */}
+            <div className="flex items-center gap-2 mb-3">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-400" />
+              </span>
+              <span className="text-[11px] font-bold text-[#64748b] uppercase tracking-widest">
+                {pending.length} pendiente{pending.length > 1 ? "s" : ""}
+              </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Cards compactas — toda la card es clickeable */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
               {activeGroups.map(([type, items]) => {
                 const cfg = pendingModuleConfig[type];
                 return (
-                  <div
+                  <button
                     key={type}
-                    className={`border rounded-2xl p-5 flex items-center justify-between gap-4 shadow-sm ${cfg.cardBg}`}
+                    onClick={() => setActiveModule(type)}
+                    className={`group flex items-center gap-3 px-4 py-3 rounded-2xl border text-left transition-all duration-200 hover:shadow-md hover:-translate-y-px active:translate-y-0 ${cfg.cardBg}`}
                   >
-                    {/* Icono + info */}
-                    <div className="flex items-center gap-4 min-w-0">
-                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${cfg.badgeBg} ${cfg.badgeText}`}>
+                    {/* Icono con badge de conteo */}
+                    <div className="relative shrink-0">
+                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${cfg.badgeBg} ${cfg.badgeText}`}>
                         {cfg.icon}
                       </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-black text-[#1e293b] leading-snug">{cfg.label}</p>
-                        <p className="text-xs text-[#64748b] mt-0.5">{cfg.sublabel}</p>
-                        <div className="flex items-center gap-1.5 mt-2">
-                          <span className="relative flex h-2 w-2">
-                            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${cfg.dotColor} opacity-60`} />
-                            <span className={`relative inline-flex rounded-full h-2 w-2 ${cfg.dotColor}`} />
-                          </span>
-                          <span className={`text-[11px] font-bold ${cfg.badgeText}`}>
-                            {items.length} pendiente{items.length > 1 ? "s" : ""}
-                          </span>
-                        </div>
-                      </div>
+                      <span className={`absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 text-[9px] font-black rounded-full flex items-center justify-center text-white leading-none ${cfg.dotColor}`}>
+                        {items.length}
+                      </span>
                     </div>
 
-                    {/* Botón */}
-                    <button
-                      onClick={() => setActiveModule(type)}
-                      className={`shrink-0 flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold text-white transition-all shadow-sm ${cfg.btnBg}`}
-                    >
-                      Responder
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                    {/* Texto */}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-black text-[#1e293b] leading-none truncate">{cfg.label}</p>
+                      <p className="text-[10px] text-[#64748b] mt-1 leading-none truncate">{cfg.sublabel}</p>
+                    </div>
+
+                    {/* Chevron animado */}
+                    <ChevronRight className={`w-4 h-4 shrink-0 ${cfg.badgeText} opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all duration-200`} />
+                  </button>
                 );
               })}
             </div>
@@ -224,13 +231,13 @@ export default function Home() {
               {/* Header del modal */}
               <div className={`px-7 py-5 flex items-center justify-between border-b ${cfg.cardBg}`}>
                 <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${cfg.badgeBg} ${cfg.badgeText}`}>
+                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${cfg.badgeBg} ${cfg.badgeText}`}>
                     {cfg.icon}
                   </div>
                   <div>
                     <h4 className="font-black text-[#1e293b] leading-tight">{cfg.label}</h4>
                     <p className={`text-xs font-semibold ${cfg.badgeText}`}>
-                      {items.length} encuesta{items.length > 1 ? "s" : ""} pendiente{items.length > 1 ? "s" : ""}
+                      {items.length} {cfg.itemName}{items.length > 1 ? (cfg.itemName === "evaluación" ? "es" : "s") : ""} pendiente{items.length > 1 ? "s" : ""}
                     </p>
                   </div>
                 </div>
@@ -259,7 +266,7 @@ export default function Home() {
                       <p className="text-sm font-semibold text-[#1e293b] truncate">{item.title}</p>
                     </div>
                     <span className="shrink-0 flex items-center gap-1 text-xs font-bold text-primary group-hover:gap-2 transition-all whitespace-nowrap">
-                      Ir a la encuesta
+                      Ir a la {cfg.itemName}
                       <ArrowRight className="w-3.5 h-3.5" />
                     </span>
                   </Link>
