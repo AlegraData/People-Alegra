@@ -3,6 +3,12 @@ import { NextResponse, type NextRequest } from "next/server";
 
 const PUBLIC_ROUTES = ["/login", "/auth/callback"];
 
+const MODULE_PATH_TO_ID: Record<string, string> = {
+  "/enps": "enps",
+  "/clima": "clima",
+  "/evaluaciones360": "360",
+};
+
 // Cuando el app corre detrás de un proxy (Cloud Run, Vercel, etc.),
 // request.nextUrl.origin puede ser la dirección interna (0.0.0.0:3000).
 // Usamos x-forwarded-host / x-forwarded-proto para obtener la URL pública real.
@@ -72,6 +78,28 @@ export async function proxy(request: NextRequest) {
     const next = request.nextUrl.searchParams.get("next");
     const dest = next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
     return NextResponse.redirect(new URL(dest, origin));
+  }
+
+  // Block access to modules that are inactive in module_config
+  if (user) {
+    const moduleId = Object.entries(MODULE_PATH_TO_ID).find(
+      ([path]) => pathname === path || pathname.startsWith(path + "/")
+    )?.[1];
+
+    if (moduleId) {
+      const { data, error } = await supabase
+        .from("module_config")
+        .select("is_active")
+        .eq("id", moduleId)
+        .single();
+
+      // Only block if the row exists and is explicitly inactive.
+      // On query error (transient DB issue, missing row) we fail open to
+      // avoid locking users out when the DB is temporarily unavailable.
+      if (!error && data?.is_active === false) {
+        return NextResponse.redirect(new URL("/", origin));
+      }
+    }
   }
 
   return supabaseResponse;
