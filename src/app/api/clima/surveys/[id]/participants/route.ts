@@ -18,39 +18,27 @@ export async function GET(
 
     const { id: surveyId } = await params;
 
-    // 1. Asignaciones con employee_id y timestamps
+    // 1. Asignaciones con datos de empleado via JOIN directo (evita depender de v_empleados_activos_completa
+    //    y no tiene límites de URL con grandes volúmenes de participantes)
     const { data: assignments, error: aErr } = await supabaseAdmin
       .from("climate_survey_assignments")
-      .select("employee_id, assigned_at, completed_at")
+      .select(`
+        employee_id,
+        assigned_at,
+        completed_at,
+        employees!inner(
+          email,
+          employee_personal_info(nombres, primer_apellido, segundo_apellido, es_actual),
+          employee_events(role_name, technical_team, es_actual)
+        )
+      `)
       .eq("survey_id", surveyId);
 
     if (aErr || !assignments?.length) {
       return NextResponse.json([]);
     }
 
-    // 2. Emails por UUID
-    const employeeIds = assignments.map((a) => a.employee_id as string);
-    const { data: employees } = await supabaseAdmin
-      .from("employees")
-      .select("id, email")
-      .in("id", employeeIds);
-
-    const idToEmail = new Map((employees ?? []).map((e) => [e.id as string, e.email as string]));
-    const emails = Array.from(idToEmail.values());
-
-    // 3. Detalles desde la vista
-    const { data: empDetails } = emails.length
-      ? await supabaseAdmin
-          .from("v_empleados_activos_completa")
-          .select("correo, nombre_completo, cargo, equipo")
-          .in("correo", emails)
-      : { data: [] };
-
-    const detailsByEmail = new Map(
-      (empDetails ?? []).map((e) => [e.correo as string, e])
-    );
-
-    // 4. Respuestas existentes
+    // 2. Respuestas existentes
     const { data: responses } = await supabaseAdmin
       .from("climate_survey_responses")
       .select("id, employee_id")
@@ -60,19 +48,29 @@ export async function GET(
       (responses ?? []).map((r) => [r.employee_id as string, r.id as string])
     );
 
-    // 5. Merge
+    // 3. Merge
     const participants: SurveyParticipant[] = assignments.map((a) => {
-      const email = idToEmail.get(a.employee_id as string) ?? "";
-      const detail = detailsByEmail.get(email);
+      const emp   = (a as any).employees;
+      const email = (emp?.email as string) ?? "";
+
+      const infoList = (emp?.employee_personal_info ?? []) as any[];
+      const info     = infoList.find((i) => i.es_actual) ?? infoList[0];
+      const nombre_completo = info
+        ? `${info.nombres ?? ""} ${info.primer_apellido ?? ""} ${info.segundo_apellido ?? ""}`.trim()
+        : email;
+
+      const eventList = (emp?.employee_events ?? []) as any[];
+      const event     = eventList.find((e) => e.es_actual) ?? eventList[0];
+
       return {
-        employee_id:    a.employee_id as string,
-        correo:         email,
-        nombre_completo: (detail?.nombre_completo as string) ?? email,
-        cargo:          (detail?.cargo as string)  ?? null,
-        equipo:         (detail?.equipo as string) ?? null,
-        assigned_at:    a.assigned_at as string,
-        completed_at:   (a.completed_at as string) ?? null,
-        response_id:    responseByEmployee.get(a.employee_id as string) ?? null,
+        employee_id:     a.employee_id as string,
+        correo:          email,
+        nombre_completo: nombre_completo || email,
+        cargo:           (event?.role_name      as string) ?? null,
+        equipo:          (event?.technical_team as string) ?? null,
+        assigned_at:     a.assigned_at as string,
+        completed_at:    (a.completed_at as string) ?? null,
+        response_id:     responseByEmployee.get(a.employee_id as string) ?? null,
       };
     });
 
