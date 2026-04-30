@@ -29,7 +29,7 @@ export async function GET(
         employees!inner(
           email,
           employee_personal_info(nombres, primer_apellido, segundo_apellido, es_actual),
-          employee_events(role_name, technical_team, es_actual)
+          employee_events(role_name, technical_team, event_date, es_actual)
         )
       `)
       .eq("survey_id", surveyId);
@@ -62,12 +62,19 @@ export async function GET(
       const eventList = (emp?.employee_events ?? []) as any[];
       const event     = eventList.find((e) => e.es_actual) ?? eventList[0];
 
+      // Fecha de ingreso = event_date más antigua de todos los eventos (igual que v_empleados_activos_completa)
+      const fecha_original = eventList
+        .map((e) => e.event_date as string)
+        .filter(Boolean)
+        .sort()[0] ?? null;
+
       return {
         employee_id:     a.employee_id as string,
         correo:          email,
         nombre_completo: nombre_completo || email,
         cargo:           (event?.role_name      as string) ?? null,
         equipo:          (event?.technical_team as string) ?? null,
+        fecha_original,
         assigned_at:     a.assigned_at as string,
         completed_at:    (a.completed_at as string) ?? null,
         response_id:     responseByEmployee.get(a.employee_id as string) ?? null,

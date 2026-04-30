@@ -1,8 +1,9 @@
 "use client";
 import { useState } from "react";
 import { ArrowLeft, Download } from "lucide-react";
-import type { Survey } from "@/types/clima";
+import type { Survey, SurveyParticipant } from "@/types/clima";
 import * as XLSX from "xlsx";
+import ParticipationCharts from "./ParticipationCharts";
 
 interface SurveyResultsProps {
   survey: Survey;
@@ -21,31 +22,57 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
   const handleExportExcel = async () => {
     setExporting(true);
     try {
-      const response = await fetch(`/api/clima/responses?surveyId=${survey.id}`);
-      const data: ResponseRow[] = await response.json();
+      const [responsesRes, participantsRes] = await Promise.all([
+        fetch(`/api/clima/responses?surveyId=${survey.id}`),
+        fetch(`/api/clima/surveys/${survey.id}/participants`),
+      ]);
+
+      const data: ResponseRow[]          = await responsesRes.json();
+      const participants: SurveyParticipant[] = await participantsRes.json();
 
       if (!data || data.length === 0) {
         alert("No hay datos para exportar.");
         return;
       }
 
+      // Lookup: correo → participante
+      const byEmail = new Map<string, SurveyParticipant>(
+        (participants ?? []).map((p) => [p.correo.toLowerCase(), p]),
+      );
+
+      const fmtDate = (iso: string | null | undefined) =>
+        iso ? new Date(iso).toLocaleDateString("es-CO") : "";
+
       const questions = survey.questions as { id: string; text: string }[];
 
-      // Encabezados: Empleado, Fecha, luego texto de cada pregunta
       const headers = [
-        "Empleado",
-        "Fecha",
+        "Correo",
+        "Nombre",
+        "Equipo",
+        "Rol",
+        "Fecha de ingreso",
+        "Fecha de asignación",
+        "Fecha de respuesta",
         ...questions.map((q) => q.text),
       ];
 
-      // Filas: una por respuesta
       const rows = data.map((row) => {
-        const date = new Date(row.submittedAt).toLocaleDateString("es-CO");
+        const email = row.employee?.email ?? "";
+        const part  = byEmail.get(email.toLowerCase());
         const answers = questions.map((q) => {
           const val = (row.answers as Record<string, unknown>)[q.id];
           return val !== undefined && val !== null ? String(val) : "";
         });
-        return [row.employee?.email ?? "Anónimo", date, ...answers];
+        return [
+          email || "Anónimo",
+          part?.nombre_completo  ?? "",
+          part?.equipo           ?? "",
+          part?.cargo            ?? "",
+          fmtDate(part?.fecha_original),
+          fmtDate(part?.assigned_at),
+          fmtDate(row.submittedAt),
+          ...answers,
+        ];
       });
 
       const wsData = [headers, ...rows];
@@ -98,13 +125,7 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
         </button>
       </div>
 
-      <div className="bg-slate-50 rounded-2xl p-8 text-center border border-slate-100">
-        <p className="text-[#64748b] mb-4">Los gráficos se renderizarán aquí.</p>
-        <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-primary/10">
-          <span className="text-3xl font-black text-primary">85%</span>
-        </div>
-        <p className="font-bold text-[#1e293b] mt-4">Nivel de Satisfacción General</p>
-      </div>
+      <ParticipationCharts surveyId={survey.id} />
     </div>
   );
 }

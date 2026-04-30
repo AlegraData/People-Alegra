@@ -78,6 +78,7 @@ export interface SurveyParticipant {
   correo: string;
   cargo: string | null;
   equipo: string | null;
+  fecha_original: string | null;
   assigned_at: string;
   completed_at: string | null;
   response_id: string | null;
