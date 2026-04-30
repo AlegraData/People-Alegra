@@ -419,7 +419,7 @@ export default function ParticipationCharts({ surveyId }: Props) {
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
                 <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 10, fill: "#94a3b8" }}
-                  tickFormatter={(v: number) => `${v}%`} />
+                  tickFormatter={(v) => `${v}%`} />
                 <YAxis type="category" dataKey="name" width={150} tick={{ fontSize: 11, fill: "#1e293b" }} />
                 <Tooltip content={<ChartTooltip />} />
                 <Bar dataKey="% participación" fill={CYAN} radius={[0, 4, 4, 0]}>
@@ -427,7 +427,7 @@ export default function ParticipationCharts({ surveyId }: Props) {
                     dataKey="% participación"
                     position="right"
                     style={{ fontSize: 10, fill: "#64748b" }}
-                    formatter={(v: number) => `${v}%`}
+                    formatter={(v) => `${v ?? 0}%`}
                   />
                 </Bar>
               </BarChart>
@@ -456,7 +456,7 @@ export default function ParticipationCharts({ surveyId }: Props) {
                   dataKey="Personas"
                   position="top"
                   style={{ fontSize: 11, fill: "#64748b" }}
-                  formatter={(v: number) => v > 0 ? String(v) : ""}
+                  formatter={(v) => Number(v) > 0 ? String(v) : ""}
                 />
               </Bar>
             </BarChart>
