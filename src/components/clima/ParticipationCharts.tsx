@@ -421,10 +421,7 @@ export default function ParticipationCharts({ surveyId }: Props) {
                 <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 10, fill: "#94a3b8" }}
                   tickFormatter={(v: number) => `${v}%`} />
                 <YAxis type="category" dataKey="name" width={150} tick={{ fontSize: 11, fill: "#1e293b" }} />
-                <Tooltip
-                  content={<ChartTooltip />}
-                  formatter={(v: number) => [`${v}%`, "% participación"]}
-                />
+                <Tooltip content={<ChartTooltip />} />
                 <Bar dataKey="% participación" fill={CYAN} radius={[0, 4, 4, 0]}>
                   <LabelList
                     dataKey="% participación"
