@@ -89,8 +89,9 @@ export async function GET() {
     if (authError || !user) return NextResponse.json({ modules: [], pending: [] }, { status: 401 });
 
     // Una sola consulta a module_config — compartida por tarjetas y pendientes
-    const [{ data: roleData }, { data: modulesData, error: modulesError }] = await Promise.all([
+    const [{ data: roleData }, { data: moduleRolesData }, { data: modulesData, error: modulesError }] = await Promise.all([
       supabaseAdmin.from("user_roles").select("role").eq("user_id", user.id).single(),
+      supabaseAdmin.from("user_module_roles").select("module, role").eq("user_id", user.id),
       supabaseAdmin
         .from("module_config")
         .select("id, label, description, is_active, sort_order, min_role")
@@ -100,10 +101,16 @@ export async function GET() {
 
     if (modulesError) return NextResponse.json({ modules: [], pending: [] }, { status: 500 });
 
-    const userRank = ROLE_RANK[roleData?.role ?? "viewer"] ?? 0;
-    const modules = (modulesData ?? []).filter(
-      (m: any) => userRank >= (ROLE_RANK[m.min_role ?? "viewer"] ?? 0)
-    );
+    const globalRank = ROLE_RANK[roleData?.role ?? "viewer"] ?? 0;
+    const moduleRankMap: Record<string, number> = {};
+    (moduleRolesData ?? []).forEach((mr: any) => {
+      moduleRankMap[mr.module] = ROLE_RANK[mr.role] ?? 0;
+    });
+
+    const modules = (modulesData ?? []).filter((m: any) => {
+      const effectiveRank = moduleRankMap[m.id] ?? globalRank;
+      return effectiveRank >= (ROLE_RANK[m.min_role ?? "viewer"] ?? 0);
+    });
 
     // Si no hay registro de empleado devolvemos los módulos igualmente (para mostrar las tarjetas)
     const employee = await prisma.employee.findUnique({ where: { email: user.email! } });
