@@ -1,7 +1,8 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
-import { ArrowLeft, ArrowRight, CheckCircle2, Pencil, Send, AlertCircle, ShieldCheck, ClipboardList, ChevronRight } from "lucide-react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { ArrowLeft, ArrowRight, CheckCircle2, Pencil, Send, AlertCircle, ShieldCheck, ClipboardList, ChevronRight, Search, X } from "lucide-react";
 import type { Survey, Question } from "@/types/clima";
+import type { EmployeeOption } from "@/app/api/people/employees/route";
 
 interface Props {
   survey: Survey;
@@ -36,6 +37,175 @@ function AutoTextarea({ value, onChange }: { value: string; onChange: (v: string
 
 function withExternalLinks(html: string): string {
   return html.replace(/<a\s/gi, '<a target="_blank" rel="noopener noreferrer" ');
+}
+
+// ── Iniciales con color determinístico por email ──────────────────────────────
+function getInitialsColor(email: string): string {
+  const colors = [
+    "bg-rose-500", "bg-pink-500", "bg-violet-500", "bg-indigo-500",
+    "bg-blue-500", "bg-cyan-500", "bg-teal-500", "bg-emerald-500",
+    "bg-amber-500", "bg-orange-500",
+  ];
+  let hash = 0;
+  for (let i = 0; i < email.length; i++) hash = email.charCodeAt(i) + ((hash << 5) - hash);
+  return colors[Math.abs(hash) % colors.length];
+}
+
+function Avatar({ name, email, avatarUrl, size = "md" }: {
+  name: string; email: string; avatarUrl: string | null; size?: "sm" | "md" | "lg";
+}) {
+  const [imgError, setImgError] = useState(false);
+  const initials = name.split(" ").slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("");
+  const sizeClass = size === "sm" ? "w-8 h-8 text-xs" : size === "lg" ? "w-12 h-12 text-base" : "w-10 h-10 text-sm";
+
+  if (avatarUrl && !imgError) {
+    return (
+      <img
+        src={avatarUrl}
+        alt={name}
+        onError={() => setImgError(true)}
+        className={`${sizeClass} rounded-full object-cover shrink-0`}
+      />
+    );
+  }
+  return (
+    <div className={`${sizeClass} rounded-full flex items-center justify-center font-bold text-white shrink-0 ${getInitialsColor(email)}`}>
+      {initials || "?"}
+    </div>
+  );
+}
+
+// ── Selector de persona (tipo "people") ───────────────────────────────────────
+function PeopleInput({
+  value, onChange,
+}: {
+  value: string | undefined;
+  onChange: (v: string) => void;
+}) {
+  const [query, setQuery]           = useState("");
+  const [employees, setEmployees]   = useState<EmployeeOption[]>([]);
+  const [filtered, setFiltered]     = useState<EmployeeOption[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [open, setOpen]             = useState(false);
+  const selected: EmployeeOption | null = (() => {
+    if (!value) return null;
+    try { return JSON.parse(value) as EmployeeOption; } catch { return null; }
+  })();
+
+  useEffect(() => {
+    fetch("/api/people/employees")
+      .then((r) => r.json())
+      .then((data) => { setEmployees(data); setFiltered(data); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleSearch = useCallback((q: string) => {
+    setQuery(q);
+    const lower = q.toLowerCase();
+    setFiltered(
+      employees.filter(
+        (e) =>
+          e.nombre_completo.toLowerCase().includes(lower) ||
+          e.email.toLowerCase().includes(lower) ||
+          (e.cargo ?? "").toLowerCase().includes(lower) ||
+          (e.equipo ?? "").toLowerCase().includes(lower)
+      )
+    );
+  }, [employees]);
+
+  const select = (emp: EmployeeOption) => {
+    onChange(JSON.stringify(emp));
+    setOpen(false);
+    setQuery("");
+    setFiltered(employees);
+  };
+
+  const clear = () => {
+    onChange("");
+    setOpen(false);
+  };
+
+  if (selected) {
+    return (
+      <div className="flex items-center gap-3 p-4 bg-rose-50 border-2 border-rose-200 rounded-2xl">
+        <Avatar name={selected.nombre_completo} email={selected.email} avatarUrl={selected.avatar_url} size="lg" />
+        <div className="flex-1 min-w-0">
+          <p className="font-bold text-[#1e293b] truncate">{selected.nombre_completo}</p>
+          {selected.cargo && <p className="text-xs text-[#64748b] truncate">{selected.cargo}{selected.equipo ? ` · ${selected.equipo}` : ""}</p>}
+          <p className="text-xs text-[#94a3b8] truncate">{selected.email}</p>
+        </div>
+        <button
+          onClick={clear}
+          className="p-1.5 rounded-lg text-[#64748b] hover:text-red-500 hover:bg-red-50 transition-colors shrink-0"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center gap-3 px-4 py-3.5 bg-slate-50 border-2 border-slate-200 rounded-2xl text-left text-sm text-[#64748b] hover:border-rose-300 hover:bg-rose-50/50 transition-all"
+      >
+        <Search className="w-4 h-4 shrink-0" />
+        <span>Buscar y seleccionar una persona...</span>
+      </button>
+
+      {open && (
+        <div className="absolute z-20 top-full mt-2 w-full bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden">
+          <div className="p-3 border-b border-slate-100">
+            <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 focus-within:border-rose-400 focus-within:bg-white transition-all">
+              <Search className="w-4 h-4 text-[#94a3b8] shrink-0" />
+              <input
+                autoFocus
+                value={query}
+                onChange={(e) => handleSearch(e.target.value)}
+                placeholder="Buscar por nombre, cargo o equipo..."
+                className="flex-1 bg-transparent text-sm outline-none text-[#1e293b] placeholder:text-[#94a3b8]"
+              />
+              {query && (
+                <button onClick={() => handleSearch("")} className="text-[#94a3b8] hover:text-[#64748b]">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="max-h-64 overflow-y-auto">
+            {loading ? (
+              <div className="flex justify-center py-6">
+                <div className="w-5 h-5 border-2 border-rose-400 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : filtered.length === 0 ? (
+              <p className="text-center text-sm text-[#94a3b8] py-6">Sin resultados para "{query}"</p>
+            ) : (
+              filtered.map((emp) => (
+                <button
+                  key={emp.employee_id}
+                  onClick={() => select(emp)}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-rose-50 transition-colors text-left border-b border-slate-50 last:border-0"
+                >
+                  <Avatar name={emp.nombre_completo} email={emp.email} avatarUrl={emp.avatar_url} size="sm" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-[#1e293b] truncate">{emp.nombre_completo}</p>
+                    {(emp.cargo || emp.equipo) && (
+                      <p className="text-xs text-[#64748b] truncate">
+                        {[emp.cargo, emp.equipo].filter(Boolean).join(" · ")}
+                      </p>
+                    )}
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── Input según tipo de pregunta ──────────────────────────────────────────────
@@ -122,12 +292,20 @@ function QuestionInput({
     );
   }
 
+  if (q.type === "people") {
+    return <PeopleInput value={value as string | undefined} onChange={(v) => onChange(v)} />;
+  }
+
   // text
   return <AutoTextarea value={(value as string) ?? ""} onChange={onChange} />;
 }
 
 // ── Etiqueta de respuesta en pantalla de revisión ─────────────────────────────
-function AnswerLabel({ value, required }: { value: string | number | undefined; required?: boolean }) {
+function AnswerLabel({ value, required, questionType }: {
+  value: string | number | undefined;
+  required?: boolean;
+  questionType?: string;
+}) {
   if (value === undefined || value === "") {
     return (
       <span className={`inline-flex items-center gap-1 text-xs font-bold ${required ? "text-red-500" : "text-amber-600"}`}>
@@ -136,6 +314,21 @@ function AnswerLabel({ value, required }: { value: string | number | undefined; 
       </span>
     );
   }
+
+  if (questionType === "people") {
+    try {
+      const emp = JSON.parse(String(value)) as EmployeeOption;
+      return (
+        <span className="inline-flex items-center gap-2">
+          <Avatar name={emp.nombre_completo} email={emp.email} avatarUrl={emp.avatar_url} size="sm" />
+          <span className="text-sm font-bold text-primary">{emp.nombre_completo}</span>
+        </span>
+      );
+    } catch {
+      return <span className="text-sm font-bold text-primary">{String(value)}</span>;
+    }
+  }
+
   return <span className="text-sm font-bold text-primary">{String(value)}</span>;
 }
 
@@ -405,7 +598,7 @@ export default function SurveyTaker({ survey, onComplete, onCancel }: Props) {
                       )}
                     </div>
                     <div className="mt-1.5">
-                      <AnswerLabel value={answers[q.id]} required={q.required} />
+                      <AnswerLabel value={answers[q.id]} required={q.required} questionType={q.type} />
                     </div>
                   </div>
                 </div>

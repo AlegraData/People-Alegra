@@ -7,7 +7,7 @@ import type { Role, Survey, SurveyFormData } from "@/types/clima";
 import AdminList          from "@/components/clima/AdminList";
 import ManagerList        from "@/components/clima/ManagerList";
 import ViewerList         from "@/components/clima/ViewerList";
-import SurveyBuilder      from "@/components/clima/SurveyBuilder";
+import SurveyBuilder      from "@/components/people/SurveyBuilder";
 import SurveyTaker        from "@/components/people/SurveyTaker";
 import SurveyResults      from "@/components/people/SurveyResults";
 import SurveyParticipants from "@/components/people/SurveyParticipants";
