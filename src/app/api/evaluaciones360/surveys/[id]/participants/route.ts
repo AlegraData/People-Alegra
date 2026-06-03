@@ -7,6 +7,13 @@ import { sendSurveyInvitation } from "@/lib/mailer";
 
 type Ctx = { params: Promise<{ id: string }> };
 
+async function get360EffectiveRole(userId: string): Promise<string> {
+  const { data: roleData } = await supabaseAdmin.from("user_roles").select("role").eq("user_id", userId).single();
+  const { data: modRoleData } = await supabaseAdmin
+    .from("user_module_roles").select("role").eq("user_id", userId).eq("module", "360").single();
+  return modRoleData?.role ?? roleData?.role ?? "viewer";
+}
+
 export async function GET(_req: Request, { params }: Ctx) {
   try {
     const { id } = await params;
@@ -14,8 +21,8 @@ export async function GET(_req: Request, { params }: Ctx) {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-    const { data: roleData } = await supabaseAdmin.from("user_roles").select("role").eq("user_id", user.id).single();
-    if (!["admin", "manager"].includes(roleData?.role)) return NextResponse.json({ error: "Sin permiso" }, { status: 403 });
+    const effectiveRole = await get360EffectiveRole(user.id);
+    if (!["admin", "manager"].includes(effectiveRole)) return NextResponse.json({ error: "Sin permiso" }, { status: 403 });
 
     const assignments = await prisma.evaluation360Assignment.findMany({
       where: { evaluationId: id },
@@ -36,8 +43,8 @@ export async function POST(request: Request, { params }: Ctx) {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-    const { data: roleData } = await supabaseAdmin.from("user_roles").select("role").eq("user_id", user.id).single();
-    if (roleData?.role !== "admin") return NextResponse.json({ error: "Sin permiso" }, { status: 403 });
+    const effectiveRole = await get360EffectiveRole(user.id);
+    if (effectiveRole !== "admin") return NextResponse.json({ error: "Sin permiso" }, { status: 403 });
 
     const evaluation = await prisma.evaluation360.findUnique({ where: { id } });
     if (!evaluation) return NextResponse.json({ error: "Evaluación no encontrada" }, { status: 404 });
@@ -103,8 +110,8 @@ export async function DELETE(request: Request, { params }: Ctx) {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-    const { data: roleData } = await supabaseAdmin.from("user_roles").select("role").eq("user_id", user.id).single();
-    if (roleData?.role !== "admin") return NextResponse.json({ error: "Sin permiso" }, { status: 403 });
+    const effectiveRole = await get360EffectiveRole(user.id);
+    if (effectiveRole !== "admin") return NextResponse.json({ error: "Sin permiso" }, { status: 403 });
 
     const { assignmentId } = await request.json();
     await prisma.evaluation360Assignment.delete({ where: { id: assignmentId, evaluationId: id } });

@@ -36,7 +36,10 @@ export async function PATCH(request: Request, { params }: Ctx) {
     if (authError || !user) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
     const { data: roleData } = await supabaseAdmin.from("user_roles").select("role").eq("user_id", user.id).single();
-    if (roleData?.role !== "admin") return NextResponse.json({ error: "Sin permiso" }, { status: 403 });
+    const { data: modRoleData } = await supabaseAdmin
+      .from("user_module_roles").select("role").eq("user_id", user.id).eq("module", "360").single();
+    if ((modRoleData?.role ?? roleData?.role ?? "viewer") !== "admin")
+      return NextResponse.json({ error: "Sin permiso" }, { status: 403 });
 
     const body = await request.json();
     const {
@@ -84,7 +87,10 @@ export async function DELETE(_req: Request, { params }: Ctx) {
     if (authError || !user) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
     const { data: roleData } = await supabaseAdmin.from("user_roles").select("role").eq("user_id", user.id).single();
-    if (roleData?.role !== "admin") return NextResponse.json({ error: "Sin permiso" }, { status: 403 });
+    const { data: modRoleData } = await supabaseAdmin
+      .from("user_module_roles").select("role").eq("user_id", user.id).eq("module", "360").single();
+    if ((modRoleData?.role ?? roleData?.role ?? "viewer") !== "admin")
+      return NextResponse.json({ error: "Sin permiso" }, { status: 403 });
 
     await prisma.evaluation360.delete({ where: { id } });
     return NextResponse.json({ ok: true });

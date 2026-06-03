@@ -32,7 +32,7 @@ export default function Evaluaciones360Page() {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user?.email) setUserEmail(user.email);
     });
-    fetch("/api/auth/role")
+    fetch("/api/auth/role?module=360")
       .then((r) => r.json())
       .then(({ role }) => setRole(role ?? "viewer"))
       .catch(() => {});

@@ -12,7 +12,10 @@ export async function GET() {
     if (authError || !user) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
     const { data: roleData } = await supabaseAdmin.from("user_roles").select("role").eq("user_id", user.id).single();
-    const role = roleData?.role ?? "viewer";
+    const globalRole = roleData?.role ?? "viewer";
+    const { data: moduleRoleData } = await supabaseAdmin
+      .from("user_module_roles").select("role").eq("user_id", user.id).eq("module", "360").single();
+    const role = moduleRoleData?.role ?? globalRole;
 
     if (role === "admin" || role === "manager") {
       const evals = await prisma.evaluation360.findMany({ orderBy: { createdAt: "desc" } });
@@ -94,7 +97,11 @@ export async function POST(request: Request) {
     if (authError || !user) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
     const { data: roleData } = await supabaseAdmin.from("user_roles").select("role").eq("user_id", user.id).single();
-    if (roleData?.role !== "admin") return NextResponse.json({ error: "Solo administradores pueden crear evaluaciones" }, { status: 403 });
+    const globalRole360 = roleData?.role ?? "viewer";
+    const { data: moduleRoleData360 } = await supabaseAdmin
+      .from("user_module_roles").select("role").eq("user_id", user.id).eq("module", "360").single();
+    const effectiveRole360 = moduleRoleData360?.role ?? globalRole360;
+    if (effectiveRole360 !== "admin") return NextResponse.json({ error: "Solo administradores pueden crear evaluaciones" }, { status: 403 });
 
     const body = await request.json();
     const {
