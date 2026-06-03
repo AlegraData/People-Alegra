@@ -151,7 +151,7 @@ export default function SurveyParticipants({ survey, onBack, onSurveyUpdated }: 
     if (!invitationIds) return;
     setInvitationSending(true);
     try {
-      const res = await fetch("/api/email/survey-invite", {
+      const res = await fetch("/api/people/email/survey-invite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -206,7 +206,7 @@ export default function SurveyParticipants({ survey, onBack, onSurveyUpdated }: 
       } else if (reminderTarget.type === "selected") {
         body.employeeIds = reminderTarget.employeeIds;
       }
-      const res  = await fetch("/api/email/survey-invite", {
+      const res  = await fetch("/api/people/email/survey-invite", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify(body),
