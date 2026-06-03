@@ -2,8 +2,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { ArrowLeft, RotateCcw, UserX, CheckCircle2, Clock, Mail, Send, UserPlus, X, Search, SlidersHorizontal, Users } from "lucide-react";
 import type { Survey, SurveyParticipant, Empleado, EmailTemplateConfig } from "@/types/clima";
-import ParticipantSelector from "./ParticipantSelector";
-import EmailTemplateEditor from "./EmailTemplateEditor";
+import ParticipantSelector from "@/components/clima/ParticipantSelector";
+import EmailTemplateEditor from "@/components/clima/EmailTemplateEditor";
 
 interface SurveyParticipantsProps {
   survey: Survey;
