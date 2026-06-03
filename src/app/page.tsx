@@ -5,7 +5,7 @@ import Link from "next/link";
 import { createClient } from "@/utils/supabase/client";
 import type { PendingItem } from "@/app/api/home/pending/route";
 
-type ModuleKey = "clima" | "enps" | "360";
+type ModuleKey = "clima" | "enps" | "360" | "people";
 
 const pendingModuleConfig: Record<ModuleKey, {
   label: string;
@@ -51,6 +51,17 @@ const pendingModuleConfig: Record<ModuleKey, {
     dotColor:  "bg-emerald-500",
     btnBg:     "bg-emerald-600 hover:bg-emerald-700",
   },
+  people: {
+    label:     "Encuestas People",
+    sublabel:  "Encuestas del equipo de People",
+    itemName:  "encuesta",
+    icon:      <MessageSquare className="w-4 h-4" />,
+    cardBg:    "bg-rose-50 border-rose-100",
+    badgeBg:   "bg-rose-100",
+    badgeText: "text-rose-600",
+    dotColor:  "bg-rose-500",
+    btnBg:     "bg-rose-600 hover:bg-rose-700",
+  },
 };
 
 interface ModuleConfig { id: string; label: string; }
@@ -79,6 +90,14 @@ const ALL_MODULES = [
     icon: <UserRound className="w-6 h-6 text-primary" />,
     buttonText: "Realizar Evaluación",
     href: "/evaluaciones360",
+  },
+  {
+    id: "people",
+    title: "Encuestas People",
+    description: "Participa en las encuestas del equipo de People para seguir mejorando la experiencia de los colaboradores.",
+    icon: <MessageSquare className="w-6 h-6 text-primary" />,
+    buttonText: "Ir al Módulo",
+    href: "/people",
   },
 ];
 
@@ -125,7 +144,7 @@ export default function Home() {
       {moduleConfigs !== null && pending.length > 0 && (() => {
         const grouped = pending.reduce<Record<ModuleKey, PendingItem[]>>(
           (acc, item) => { acc[item.type]?.push(item); return acc; },
-          { clima: [], enps: [], "360": [] }
+          { clima: [], enps: [], "360": [], people: [] }
         );
         const activeGroups = (Object.entries(grouped) as [ModuleKey, PendingItem[]][]).filter(([, items]) => items.length > 0);
 

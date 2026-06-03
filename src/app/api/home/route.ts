@@ -49,6 +49,32 @@ async function fetchEnpsPending(employeeId: string, _userEmail: string): Promise
   }));
 }
 
+async function fetchPeoplePending(employeeId: string, _userEmail: string): Promise<PendingItem[]> {
+  const [{ data: mine }, { data: all }] = await Promise.all([
+    supabaseAdmin.from("people_survey_assignments").select("survey_id").eq("employee_id", employeeId),
+    supabaseAdmin.from("people_survey_assignments").select("survey_id"),
+  ]);
+
+  const myIds  = new Set((mine ?? []).map((a: any) => a.survey_id as string));
+  const anyIds = new Set((all  ?? []).map((a: any) => a.survey_id as string));
+
+  const active = await prisma.peopleSurvey.findMany({
+    where: { isActive: true },
+    select: { id: true, title: true },
+  });
+  const visible = active.filter((s) => !anyIds.has(s.id) || myIds.has(s.id));
+
+  const responded = await prisma.peopleSurveyResponse.findMany({
+    where: { employeeId, surveyId: { in: visible.map((s) => s.id) } },
+    select: { surveyId: true },
+  });
+  const done = new Set(responded.map((r) => r.surveyId));
+
+  return visible
+    .filter((s) => !done.has(s.id))
+    .map((s) => ({ id: s.id, title: s.title, type: "people" as const, href: `/people/encuesta/${s.id}` }));
+}
+
 async function fetch360Pending(_employeeId: string, userEmail: string): Promise<PendingItem[]> {
   // Una entrada por evaluación aunque el usuario tenga múltiples asignaciones dentro de ella
   const assignments = await prisma.evaluation360Assignment.findMany({
@@ -75,9 +101,10 @@ type PendingFetcher = (employeeId: string, userEmail: string) => Promise<Pending
 
 // Registro central: cada módulo que quiera aparecer en el home registra su fetcher aquí.
 const PENDING_FETCHERS: Partial<Record<string, PendingFetcher>> = {
-  clima: fetchClimaPending,
-  enps:  fetchEnpsPending,
-  "360": fetch360Pending,
+  clima:  fetchClimaPending,
+  enps:   fetchEnpsPending,
+  people: fetchPeoplePending,
+  "360":  fetch360Pending,
 };
 
 // ── Handler ────────────────────────────────────────────────────────────────

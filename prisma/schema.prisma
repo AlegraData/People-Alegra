@@ -39,6 +39,7 @@ model Employee {
   climateResponses  ClimateSurveyResponse[]
   enpsAssignments   EnpsSurveyAssignment[]
   enpsResponses     EnpsSurveyResponse[]
+  peopleResponses   PeopleSurveyResponse[]
 
   @@map("employees")
 }
@@ -102,6 +103,43 @@ model ClimateSurveyResponse {
   employee    Employee      @relation(fields: [employeeId], references: [id])
 
   @@map("climate_survey_responses")
+}
+
+// ── Encuestas People ──────────────────────────────────────────────────────────
+
+model PeopleSurvey {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title           String
+  description     String?
+  questions       Json
+  isActive        Boolean  @default(true)  @map("is_active")
+  introEnabled    Boolean  @default(true)  @map("intro_enabled")
+  introMessage    String?                  @map("intro_message")
+  termsEnabled    Boolean  @default(false) @map("terms_enabled")
+  termsText       String?                  @map("terms_text")
+  emailSubject    String?                  @map("email_subject")
+  emailBody       String?                  @map("email_body")
+  emailButtonText String?                  @map("email_button_text")
+  emailFooter     String?                  @map("email_footer")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  responses   PeopleSurveyResponse[]
+
+  @@map("people_surveys")
+}
+
+model PeopleSurveyResponse {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  surveyId    String   @map("survey_id") @db.Uuid
+  employeeId  String   @map("employee_id") @db.Uuid
+  answers     Json
+  submittedAt DateTime @default(now()) @map("submitted_at")
+
+  survey      PeopleSurvey @relation(fields: [surveyId], references: [id])
+  employee    Employee     @relation(fields: [employeeId], references: [id])
+
+  @@unique([surveyId, employeeId])
+  @@map("people_survey_responses")
 }
 
 // ── eNPS ─────────────────────────────────────────────────────────────────────

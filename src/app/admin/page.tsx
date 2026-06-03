@@ -43,9 +43,10 @@ interface AdminUser {
 }
 
 const MODULES = [
-  { id: "clima", label: "Clima" },
-  { id: "enps",  label: "eNPS"  },
-  { id: "360",   label: "360°"  },
+  { id: "clima",  label: "Clima"            },
+  { id: "enps",   label: "eNPS"             },
+  { id: "360",    label: "360°"             },
+  { id: "people", label: "Encuestas People" },
 ];
 
 const ROLE_CONFIG: Record<Role, { label: string; color: string; icon: React.ReactNode }> = {

@@ -6,6 +6,7 @@ const PUBLIC_ROUTES = ["/login", "/auth/callback"];
 const MODULE_PATH_TO_ID: Record<string, string> = {
   "/enps": "enps",
   "/clima": "clima",
+  "/people": "people",
   "/evaluaciones360": "360",
 };
 

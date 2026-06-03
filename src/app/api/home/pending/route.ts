@@ -7,7 +7,7 @@ import prisma from "@/lib/prisma";
 export interface PendingItem {
   id: string;
   title: string;
-  type: "clima" | "enps" | "360";
+  type: "clima" | "enps" | "360" | "people";
   href: string;
 }
 
@@ -86,6 +86,38 @@ export async function GET() {
           return rows.map((a) => ({
             id: a.surveyId, title: a.survey.title, type: "enps", href: "/enps",
           }));
+        })()
+      );
+    }
+
+    // ── People ───────────────────────────────────────────────────────────────
+    if (visibleModules.has("people")) {
+      tasks.push(
+        (async (): Promise<PendingItem[]> => {
+          const [{ data: myAssignments }, { data: allAssignments }] = await Promise.all([
+            supabaseAdmin.from("people_survey_assignments").select("survey_id").eq("employee_id", employee.id),
+            supabaseAdmin.from("people_survey_assignments").select("survey_id"),
+          ]);
+
+          const myIds  = new Set((myAssignments  ?? []).map((a) => a.survey_id as string));
+          const anyIds = new Set((allAssignments ?? []).map((a) => a.survey_id as string));
+
+          const allActive = await prisma.peopleSurvey.findMany({
+            where: { isActive: true },
+            select: { id: true, title: true },
+          });
+
+          const visible = allActive.filter((s) => !anyIds.has(s.id) || myIds.has(s.id));
+
+          const responded = await prisma.peopleSurveyResponse.findMany({
+            where: { employeeId: employee.id, surveyId: { in: visible.map((s) => s.id) } },
+            select: { surveyId: true },
+          });
+          const respondedIds = new Set(responded.map((r) => r.surveyId));
+
+          return visible
+            .filter((s) => !respondedIds.has(s.id))
+            .map((s) => ({ id: s.id, title: s.title, type: "people" as const, href: `/people/encuesta/${s.id}` }));
         })()
       );
     }
