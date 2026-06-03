@@ -2,9 +2,9 @@
 import { useState } from "react";
 import { ArrowLeft, Copy, Trash2, CheckCircle2, AlertTriangle, X, Plus, MonitorPlay, ShieldCheck, Mail } from "lucide-react";
 import type { Question, QuestionType, Survey, SurveyFormData, EmailTemplateConfig, Empleado } from "@/types/clima";
-import ParticipantSelector from "./ParticipantSelector";
-import RichTextEditor from "./RichTextEditor";
-import EmailTemplateEditor from "./EmailTemplateEditor";
+import ParticipantSelector from "@/components/clima/ParticipantSelector";
+import RichTextEditor from "@/components/clima/RichTextEditor";
+import EmailTemplateEditor from "@/components/clima/EmailTemplateEditor";
 
 type Step = 1 | 2 | 3;
 interface SurveyBuilderProps {
