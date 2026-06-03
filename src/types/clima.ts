@@ -1,5 +1,5 @@
 export type Role = "admin" | "manager" | "viewer";
-export type QuestionType = "text" | "rating" | "boolean" | "choice";
+export type QuestionType = "text" | "rating" | "boolean" | "choice" | "people";
 
 export interface EmailTemplateConfig {
   subject?: string | null;
