@@ -4,7 +4,7 @@ import { Settings2, UserCheck, ChevronLeft } from "lucide-react";
 import Link from "next/link";
 import { createClient } from "@/utils/supabase/client";
 import type { Role, Survey, SurveyFormData } from "@/types/clima";
-import AdminList          from "@/components/clima/AdminList";
+import AdminList          from "@/components/people/AdminList";
 import ManagerList        from "@/components/clima/ManagerList";
 import ViewerList         from "@/components/clima/ViewerList";
 import SurveyBuilder      from "@/components/people/SurveyBuilder";
