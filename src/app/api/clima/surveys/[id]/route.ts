@@ -25,6 +25,8 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     if (authError || !user) {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 });
     }
+    if (!(await requireClimaAdmin(user.id)))
+      return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
 
     const { id } = await params;
     const body = await request.json();
@@ -98,6 +100,8 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     if (authError || !user) {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 });
     }
+    if (!(await requireClimaAdmin(user.id)))
+      return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
 
     const { id } = await params;
 

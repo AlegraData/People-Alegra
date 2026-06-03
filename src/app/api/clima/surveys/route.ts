@@ -16,7 +16,14 @@ export async function GET() {
 
     const { data: roleData } = await supabaseAdmin
       .from("user_roles").select("role").eq("user_id", user.id).single();
-    const role = roleData?.role ?? "viewer";
+    const globalRole = roleData?.role ?? "viewer";
+    const { data: moduleRoleData } = await supabaseAdmin
+      .from("user_module_roles")
+      .select("role")
+      .eq("user_id", user.id)
+      .eq("module", "clima")
+      .single();
+    const role = moduleRoleData?.role ?? globalRole;
 
     // ── Admin / Manager: todas las encuestas con conteos ──────────────────
     if (role === "admin" || role === "manager") {
