@@ -8,6 +8,7 @@ const MODULE_PATH_TO_ID: Record<string, string> = {
   "/clima": "clima",
   "/people": "people",
   "/evaluaciones360": "360",
+  "/organigrama": "organigrama",
 };
 
 // Cuando el app corre detrás de un proxy (Cloud Run, Vercel, etc.),

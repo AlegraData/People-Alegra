@@ -43,10 +43,11 @@ interface AdminUser {
 }
 
 const MODULES = [
-  { id: "clima",  label: "Clima"            },
-  { id: "enps",   label: "eNPS"             },
-  { id: "360",    label: "360°"             },
-  { id: "people", label: "Encuestas People" },
+  { id: "clima",       label: "Clima"            },
+  { id: "enps",        label: "eNPS"             },
+  { id: "360",         label: "360°"             },
+  { id: "people",      label: "Encuestas People" },
+  { id: "organigrama", label: "Organigrama"      },
 ];
 
 const ROLE_CONFIG: Record<Role, { label: string; color: string; icon: React.ReactNode }> = {
@@ -62,10 +63,11 @@ const MODULE_ROLE_COLORS: Record<Role, string> = {
 };
 
 const MODULE_ICONS: Record<string, React.ReactNode> = {
-  enps:   <TrendingUp    className="w-6 h-6" />,
-  clima:  <MessageSquare className="w-6 h-6" />,
-  "360":  <UserRound     className="w-6 h-6" />,
-  people: <Users         className="w-6 h-6" />,
+  enps:        <TrendingUp    className="w-6 h-6" />,
+  clima:       <MessageSquare className="w-6 h-6" />,
+  "360":       <UserRound     className="w-6 h-6" />,
+  people:      <Users         className="w-6 h-6" />,
+  organigrama: <BarChart2     className="w-6 h-6" />,
 };
 
 export default function AdminPage() {

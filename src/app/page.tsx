@@ -5,7 +5,7 @@ import Link from "next/link";
 import { createClient } from "@/utils/supabase/client";
 import type { PendingItem } from "@/app/api/home/pending/route";
 
-type ModuleKey = "clima" | "enps" | "360" | "people";
+type ModuleKey = "clima" | "enps" | "360" | "people" | "organigrama";
 
 const pendingModuleConfig: Record<ModuleKey, {
   label: string;
@@ -62,6 +62,17 @@ const pendingModuleConfig: Record<ModuleKey, {
     dotColor:  "bg-rose-500",
     btnBg:     "bg-rose-600 hover:bg-rose-700",
   },
+  organigrama: {
+    label:     "Organigrama",
+    sublabel:  "Estructura del equipo",
+    itemName:  "reporte",
+    icon:      <UserRound className="w-4 h-4" />,
+    cardBg:    "bg-teal-50 border-teal-100",
+    badgeBg:   "bg-teal-100",
+    badgeText: "text-teal-600",
+    dotColor:  "bg-teal-500",
+    btnBg:     "bg-teal-600 hover:bg-teal-700",
+  },
 };
 
 interface ModuleConfig { id: string; label: string; }
@@ -98,6 +109,14 @@ const ALL_MODULES = [
     icon: <MessageSquare className="w-6 h-6 text-primary" />,
     buttonText: "Ir al Módulo",
     href: "/people",
+  },
+  {
+    id: "organigrama",
+    title: "Organigrama",
+    description: "Visualiza la estructura jerárquica del equipo, relaciones de liderazgo y el flujo organizacional.",
+    icon: <UserRound className="w-6 h-6 text-primary" />,
+    buttonText: "Ver Organigrama",
+    href: "/organigrama",
   },
 ];
 
@@ -144,7 +163,7 @@ export default function Home() {
       {moduleConfigs !== null && pending.length > 0 && (() => {
         const grouped = pending.reduce<Record<ModuleKey, PendingItem[]>>(
           (acc, item) => { acc[item.type]?.push(item); return acc; },
-          { clima: [], enps: [], "360": [], people: [] }
+          { clima: [], enps: [], "360": [], people: [], organigrama: [] }
         );
         const activeGroups = (Object.entries(grouped) as [ModuleKey, PendingItem[]][]).filter(([, items]) => items.length > 0);
 
