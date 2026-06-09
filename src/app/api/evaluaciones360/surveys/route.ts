@@ -113,7 +113,11 @@ export async function POST(request: Request) {
     } = body;
 
     if (!title?.trim()) return NextResponse.json({ error: "El título es requerido" }, { status: 400 });
-    if (!Array.isArray(questions) || questions.length === 0) return NextResponse.json({ error: "Se requiere al menos una pregunta" }, { status: 400 });
+    const hasQuestions = Array.isArray(questions)
+      ? questions.length > 0
+      : typeof questions === "object" && questions !== null &&
+        Object.values(questions as Record<string, unknown>).some((qs) => Array.isArray(qs) && (qs as unknown[]).length > 0);
+    if (!hasQuestions) return NextResponse.json({ error: "Se requiere al menos una pregunta" }, { status: 400 });
     if (!Array.isArray(participants) || participants.length === 0) return NextResponse.json({ error: "Se requiere al menos un participante" }, { status: 400 });
 
     const evaluation = await prisma.evaluation360.create({

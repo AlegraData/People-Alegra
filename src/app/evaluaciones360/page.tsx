@@ -94,7 +94,7 @@ export default function Evaluaciones360Page() {
 
   // ── Viewer evaluations: filter to ones where admin has own assignments ─────
   const myEvaluations = evaluations.filter(
-    (e) => ((e as any).myAssignments?.length ?? 0) > 0
+    (e) => (e.myAssignments?.length ?? 0) > 0
   );
 
   // ── Loading skeleton ──────────────────────────────────────────────────────

@@ -10,26 +10,32 @@ interface Props {
   onBack: () => void;
 }
 
+interface TypeResult {
+  score: number;
+  submittedCount: number;
+  questionScores: Record<string, { avg: number; weight: number; category?: string; text: string }>;
+  categoryScores: Record<string, { avg: number; count: number }>;
+}
+
 interface EvaluateeResult {
   evaluateeEmail: string;
   evaluateeName: string;
   overallScore: number;
   totalSubmitted: number;
-  questionScores: Record<string, { avg: number; weight: number; category?: string; text: string }>;
-  categoryScores: Record<string, { avg: number; count: number }>;
-  byType: Record<string, Record<string, number>>;
+  byType: Partial<Record<EvalType, TypeResult>>;
 }
 
 interface ResultsData {
   evaluation: { id: string; title: string; status: string; typeWeights: Record<EvalType, number> };
-  questions: Eval360Question[];
+  questionsMap: Record<EvalType, Eval360Question[]>;
   results: EvaluateeResult[];
 }
 
 export default function EvalResults({ evaluation, onBack }: Props) {
-  const [data, setData]       = useState<ResultsData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData]         = useState<ResultsData | null>(null);
+  const [loading, setLoading]   = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [expandedTypes, setExpandedTypes] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetch(`/api/evaluaciones360/surveys/${evaluation.id}/results`)
@@ -42,19 +48,55 @@ export default function EvalResults({ evaluation, onBack }: Props) {
   const toggleExpand = (email: string) =>
     setExpanded((prev) => { const s = new Set(prev); s.has(email) ? s.delete(email) : s.add(email); return s; });
 
+  const toggleType = (key: string) =>
+    setExpandedTypes((prev) => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s; });
+
   const handleExport = () => {
     if (!data) return;
-    const rows: any[] = [];
-    data.results.forEach((r) => {
-      rows.push({ "Evaluado": r.evaluateeName || r.evaluateeEmail, "Score Global": r.overallScore, "Evaluaciones recibidas": r.totalSubmitted, "": "" });
-      Object.entries(r.categoryScores).forEach(([cat, score]) => {
-        rows.push({ "Evaluado": "", "Categoría": cat, "Score Promedio": score.avg });
-      });
-      Object.entries(r.questionScores).forEach(([qId, qs]) => {
-        rows.push({ "Evaluado": "", "Pregunta": qs.text, "Categoría": qs.category || "", "Score Ponderado": qs.avg, "Peso": `${qs.weight}%` });
+
+    // Tipos que tienen peso > 0 (en el orden canónico)
+    const exportTypes = (["ascendente", "descendente", "paralela", "autoevaluacion"] as EvalType[]).filter(
+      (t) => (data.evaluation.typeWeights[t] ?? 0) > 0
+    );
+
+    // Construir encabezados dinámicos
+    const headers: string[] = ["Evaluado", "Correo", "Score Global", "Total Evaluaciones"];
+    exportTypes.forEach((type) => {
+      const label  = EVAL_TYPE_LABELS[type];
+      const typeQs = (data.questionsMap[type] ?? []).filter((q) => q.type === "rating");
+      headers.push(`${label} - Score`);
+      headers.push(`${label} - Respuestas`);
+      typeQs.forEach((q) => {
+        const cat = q.category ? `[${q.category}] ` : "";
+        headers.push(`${label} - ${cat}${q.text} (${q.weight}%)`);
       });
     });
-    const ws = XLSX.utils.json_to_sheet(rows);
+
+    // Una fila por evaluado, todo plano
+    const dataRows = data.results.map((r) => {
+      const row: Record<string, unknown> = {
+        "Evaluado":           r.evaluateeName || r.evaluateeEmail,
+        "Correo":             r.evaluateeEmail,
+        "Score Global":       r.overallScore,
+        "Total Evaluaciones": r.totalSubmitted,
+      };
+      exportTypes.forEach((type) => {
+        const label  = EVAL_TYPE_LABELS[type];
+        const tr     = r.byType[type];
+        const typeQs = (data.questionsMap[type] ?? []).filter((q) => q.type === "rating");
+        row[`${label} - Score`]      = tr?.score         ?? "";
+        row[`${label} - Respuestas`] = tr?.submittedCount ?? 0;
+        typeQs.forEach((q) => {
+          const cat = q.category ? `[${q.category}] ` : "";
+          row[`${label} - ${cat}${q.text} (${q.weight}%)`] = tr?.questionScores[q.id]?.avg ?? "";
+        });
+      });
+      return row;
+    });
+
+    // aoa_to_sheet garantiza el orden exacto de columnas
+    const aoa = [headers, ...dataRows.map((row) => headers.map((h) => row[h] ?? ""))];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Resultados");
     XLSX.writeFile(wb, `resultados_360_${evaluation.title.replace(/\s+/g, "_")}.xlsx`);
@@ -66,7 +108,26 @@ export default function EvalResults({ evaluation, onBack }: Props) {
     </div>
   );
 
-  const ratingQuestions = data?.questions.filter((q) => q.type === "rating") ?? [];
+  // Max de ratingMax ponderado entre todas las preguntas rating de todos los tipos
+  const globalRatingMax = (() => {
+    if (!data) return 5;
+    const allRating = (Object.values(data.questionsMap) as Eval360Question[][]).flat().filter((q) => q.type === "rating");
+    if (allRating.length === 0) return 5;
+    const totalW = allRating.reduce((s, q) => s + q.weight, 0) || 1;
+    return allRating.reduce((s, q) => s + (q.ratingMax ?? 5) * q.weight, 0) / totalW;
+  })();
+
+  const typeRatingMax = (type: EvalType): number => {
+    const qs = (data?.questionsMap[type] ?? []).filter((q) => q.type === "rating");
+    if (qs.length === 0) return globalRatingMax;
+    const totalW = qs.reduce((s, q) => s + q.weight, 0) || 1;
+    return qs.reduce((s, q) => s + (q.ratingMax ?? 5) * q.weight, 0) / totalW;
+  };
+
+  const qRatingMax = (type: EvalType, qId: string): number => {
+    const q = data?.questionsMap[type]?.find((q) => q.id === qId);
+    return q?.ratingMax ?? typeRatingMax(type);
+  };
 
   return (
     <div className="space-y-6">
@@ -112,7 +173,7 @@ export default function EvalResults({ evaluation, onBack }: Props) {
       {/* Per-evaluatee results */}
       {data?.results.map((r) => {
         const isExpanded = expanded.has(r.evaluateeEmail);
-        const categories = Object.entries(r.categoryScores);
+        const typeEntries = Object.entries(r.byType) as [EvalType, TypeResult][];
 
         return (
           <div key={r.evaluateeEmail} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
@@ -126,7 +187,9 @@ export default function EvalResults({ evaluation, onBack }: Props) {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="font-bold text-[#1e293b]">{r.evaluateeName || r.evaluateeEmail}</p>
-                <p className="text-xs text-[#94a3b8]">{r.evaluateeEmail} · {r.totalSubmitted} evaluaci{r.totalSubmitted !== 1 ? "ones" : "ón"} recibida{r.totalSubmitted !== 1 ? "s" : ""}</p>
+                <p className="text-xs text-[#94a3b8]">
+                  {r.evaluateeEmail} · {r.totalSubmitted} evaluaci{r.totalSubmitted !== 1 ? "ones" : "ón"} recibida{r.totalSubmitted !== 1 ? "s" : ""}
+                </p>
               </div>
               <div className="flex items-center gap-4 shrink-0">
                 <div className="text-right">
@@ -138,67 +201,96 @@ export default function EvalResults({ evaluation, onBack }: Props) {
             </button>
 
             {isExpanded && (
-              <div className="px-6 pb-6 space-y-5 border-t border-slate-100">
+              <div className="px-6 pb-6 space-y-4 border-t border-slate-100">
                 {/* Score bar global */}
                 <div className="pt-4">
-                  <ScoreBar value={r.overallScore} max={ratingQuestions[0]?.ratingMax ?? 5} label="Score Global Ponderado" />
+                  <ScoreBar value={r.overallScore} max={globalRatingMax} label="Score Global Ponderado" />
                 </div>
 
-                {/* By category */}
-                {categories.length > 0 && (
-                  <div>
-                    <p className="text-xs font-bold uppercase text-[#64748b] mb-3">Por Categoría</p>
-                    <div className="space-y-3">
-                      {categories.map(([cat, score]) => (
-                        <ScoreBar key={cat} value={score.avg} max={ratingQuestions[0]?.ratingMax ?? 5} label={cat} />
-                      ))}
-                    </div>
-                  </div>
-                )}
+                {/* Per type sections */}
+                {typeEntries.length > 0 && (
+                  <div className="space-y-3">
+                    <p className="text-xs font-bold uppercase text-[#64748b]">Por Tipo de Evaluación</p>
+                    {typeEntries.map(([type, tr]) => {
+                      const typeKey  = `${r.evaluateeEmail}-${type}`;
+                      const isTypeEx = expandedTypes.has(typeKey);
+                      const tMax     = typeRatingMax(type);
+                      const categories = Object.entries(tr.categoryScores);
+                      const qScores    = Object.entries(tr.questionScores);
 
-                {/* By type */}
-                {Object.keys(r.byType).length > 0 && (
-                  <div>
-                    <p className="text-xs font-bold uppercase text-[#64748b] mb-3">Por Tipo de Evaluación</p>
-                    <div className="grid grid-cols-2 gap-3">
-                      {(Object.entries(r.byType) as [EvalType, Record<string, number>][]).map(([type, typeScores]) => {
-                        const avg = Object.values(typeScores).length > 0
-                          ? Object.values(typeScores).reduce((a, b) => a + b, 0) / Object.values(typeScores).length
-                          : 0;
-                        return (
-                          <div key={type} className={`p-3 rounded-xl border ${EVAL_TYPE_COLORS[type].replace("text-", "border-").replace("bg-", "bg-")}`}>
-                            <p className={`text-xs font-black uppercase mb-1 ${EVAL_TYPE_COLORS[type]}`}>{EVAL_TYPE_LABELS[type]}</p>
-                            <p className="text-xl font-black text-[#1e293b]">{avg.toFixed(1)}</p>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* Per question */}
-                {Object.keys(r.questionScores).length > 0 && (
-                  <div>
-                    <p className="text-xs font-bold uppercase text-[#64748b] mb-3">Por Pregunta</p>
-                    <div className="space-y-2.5">
-                      {Object.entries(r.questionScores).map(([qId, qs]) => (
-                        <div key={qId} className="flex items-center gap-3">
-                          <div className="flex-1 min-w-0">
-                            {qs.category && <p className="text-[10px] font-black uppercase text-primary mb-0.5">{qs.category}</p>}
-                            <p className="text-xs font-semibold text-[#1e293b] truncate">{qs.text}</p>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <div className="w-24 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-primary rounded-full"
-                                style={{ width: `${(qs.avg / (ratingQuestions[0]?.ratingMax ?? 5)) * 100}%` }}
-                              />
+                      return (
+                        <div key={type} className={`rounded-xl border overflow-hidden ${EVAL_TYPE_COLORS[type].replace("text-", "border-")}`}>
+                          {/* Type header */}
+                          <button
+                            onClick={() => toggleType(typeKey)}
+                            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50/50 transition-colors text-left"
+                          >
+                            <span className={`text-[10px] font-black uppercase px-2 py-1 rounded-full ${EVAL_TYPE_COLORS[type]}`}>
+                              {EVAL_TYPE_LABELS[type]}
+                            </span>
+                            <span className="text-xs font-semibold text-[#64748b]">
+                              {tr.submittedCount} respuesta{tr.submittedCount !== 1 ? "s" : ""}
+                            </span>
+                            <div className="flex-1">
+                              <ScoreBar value={tr.score} max={tMax} label="" compact />
                             </div>
-                            <span className="text-sm font-black text-[#1e293b] w-8 text-right">{qs.avg}</span>
-                          </div>
+                            <span className="text-lg font-black text-[#1e293b] shrink-0 w-12 text-right">{tr.score.toFixed(1)}</span>
+                            {isTypeEx ? <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" /> : <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />}
+                          </button>
+
+                          {isTypeEx && (
+                            <div className="px-4 pb-4 space-y-4 border-t border-slate-100">
+                              {/* Category scores */}
+                              {categories.length > 0 && (
+                                <div className="pt-3">
+                                  <p className="text-[10px] font-bold uppercase text-[#64748b] mb-2">Por Categoría</p>
+                                  <div className="space-y-2">
+                                    {categories.map(([cat, cs]) => {
+                                      const catMax = (() => {
+                                        const catQs = (data.questionsMap[type] ?? []).filter((q) => q.type === "rating" && (q.category || "General") === cat);
+                                        if (catQs.length === 0) return tMax;
+                                        const totalW = catQs.reduce((s, q) => s + q.weight, 0) || 1;
+                                        return catQs.reduce((s, q) => s + (q.ratingMax ?? 5) * q.weight, 0) / totalW;
+                                      })();
+                                      return <ScoreBar key={cat} value={cs.avg} max={catMax} label={cat} />;
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Per question */}
+                              {qScores.length > 0 && (
+                                <div>
+                                  <p className="text-[10px] font-bold uppercase text-[#64748b] mb-2">Por Pregunta</p>
+                                  <div className="space-y-2">
+                                    {qScores.map(([qId, qs]) => {
+                                      const qMax = qRatingMax(type, qId);
+                                      return (
+                                        <div key={qId} className="flex items-center gap-3">
+                                          <div className="flex-1 min-w-0">
+                                            {qs.category && <p className="text-[10px] font-black uppercase text-primary mb-0.5">{qs.category}</p>}
+                                            <p className="text-xs font-semibold text-[#1e293b] truncate">{qs.text}</p>
+                                          </div>
+                                          <div className="flex items-center gap-2 shrink-0">
+                                            <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                              <div
+                                                className="h-full bg-primary rounded-full"
+                                                style={{ width: `${Math.min((qs.avg / qMax) * 100, 100)}%` }}
+                                              />
+                                            </div>
+                                            <span className="text-sm font-black text-[#1e293b] w-8 text-right">{qs.avg}</span>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
-                      ))}
-                    </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -210,8 +302,17 @@ export default function EvalResults({ evaluation, onBack }: Props) {
   );
 }
 
-function ScoreBar({ value, max, label }: { value: number; max: number; label: string }) {
+function ScoreBar({ value, max, label, compact }: { value: number; max: number; label: string; compact?: boolean }) {
   const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
+  if (compact) {
+    return (
+      <div className="flex items-center gap-2 flex-1">
+        <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+          <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="flex items-center gap-3">
       <span className="text-sm font-semibold text-[#1e293b] flex-1 min-w-0 truncate">{label}</span>

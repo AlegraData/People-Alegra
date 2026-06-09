@@ -38,24 +38,37 @@ export async function GET() {
 
     if (relErr || !relations) return NextResponse.json({ employees: [], relations: [] });
 
-    // 2. IDs únicos de todos los involucrados (empleados + líderes)
+    // 2. IDs únicos de todos los involucrados (empleados + líderes), sin nulos
     const allIds = Array.from(new Set([
       ...relations.map((r) => r.employee_id),
       ...relations.map((r) => r.leader_id),
-    ]));
+    ])).filter((id): id is string => !!id && id !== "null");
 
     if (allIds.length === 0) return NextResponse.json({ employees: [], relations: [] });
 
-    // 3. Info de cada empleado: nombre, cargo, equipo
-    const { data: emps } = await supabaseAdmin
-      .from("employees")
-      .select(`
-        id,
-        email,
-        employee_personal_info!inner(nombres, primer_apellido, segundo_apellido, es_actual),
-        employee_events(role_name, technical_team, es_actual)
-      `)
-      .in("id", allIds);
+    // 3. Info de cada empleado en chunks de 100 (Supabase limita el tamaño del IN)
+    const CHUNK = 100;
+    const chunks: string[][] = [];
+    for (let i = 0; i < allIds.length; i += CHUNK) chunks.push(allIds.slice(i, i + CHUNK));
+
+    const empChunks = await Promise.all(
+      chunks.map((ids) =>
+        supabaseAdmin
+          .from("employees")
+          .select(`
+            id,
+            email,
+            employee_personal_info(nombres, primer_apellido, segundo_apellido, es_actual),
+            employee_events(role_name, technical_team, es_actual)
+          `)
+          .in("id", ids)
+          .then(({ data, error }) => {
+            if (error) console.error("[organigrama] chunk error:", error.message);
+            return data ?? [];
+          })
+      )
+    );
+    const emps = empChunks.flat();
 
     // 4. Avatares desde user_roles
     const emails = (emps ?? []).map((e: any) => e.email as string);
@@ -76,6 +89,11 @@ export async function GET() {
       const eventList = (e.employee_events ?? []) as any[];
       const event = eventList.find((ev: any) => ev.es_actual) ?? eventList[0];
 
+      // Consideramos activo si tiene algún evento actual, o si simplemente existe en la relación
+      const esActivo = eventList.length > 0
+        ? eventList.some((ev: any) => ev.es_actual)
+        : true; // si no tiene eventos, asumimos activo
+
       return {
         id:              e.id as string,
         email:           e.email as string,
@@ -83,7 +101,7 @@ export async function GET() {
         cargo:           (event?.role_name as string) ?? null,
         equipo:          (event?.technical_team as string) ?? null,
         avatar_url:      avatarMap.get(e.email) ?? null,
-        es_activo:       !!event?.es_actual,
+        es_activo:       esActivo,
       };
     });
 

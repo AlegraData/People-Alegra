@@ -211,6 +211,7 @@ model Evaluation360 {
   emailButtonText      String?  @map("email_button_text")
   emailFooter          String?  @map("email_footer")
   createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt       @map("updated_at")
 
   assignments          Evaluation360Assignment[]
 

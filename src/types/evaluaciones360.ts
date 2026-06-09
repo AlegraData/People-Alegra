@@ -29,6 +29,28 @@ export interface Eval360Question {
   options?: string[];
 }
 
+/** Preguntas organizadas por tipo de evaluación */
+export type Eval360Questions = Record<EvalType, Eval360Question[]>;
+
+/**
+ * Normaliza el campo `questions` del modelo DB.
+ * - Formato legacy (array plano): se replica en todos los tipos.
+ * - Formato nuevo (objeto por tipo): se devuelve normalizado.
+ */
+export function normalizeQuestions(raw: unknown): Eval360Questions {
+  if (Array.isArray(raw)) {
+    const arr = raw as Eval360Question[];
+    return { ascendente: arr, descendente: arr, paralela: arr, autoevaluacion: arr };
+  }
+  const q = (raw ?? {}) as Record<string, unknown>;
+  return {
+    ascendente:     Array.isArray(q.ascendente)     ? (q.ascendente     as Eval360Question[]) : [],
+    descendente:    Array.isArray(q.descendente)    ? (q.descendente    as Eval360Question[]) : [],
+    paralela:       Array.isArray(q.paralela)       ? (q.paralela       as Eval360Question[]) : [],
+    autoevaluacion: Array.isArray(q.autoevaluacion) ? (q.autoevaluacion as Eval360Question[]) : [],
+  };
+}
+
 export interface Evaluation360 {
   id: string;
   title: string;
@@ -43,12 +65,13 @@ export interface Evaluation360 {
   weightDescendente: number;
   weightParalela: number;
   weightAutoevaluacion: number;
-  questions: Eval360Question[];
+  questions: Eval360Questions;
   emailSubject?: string | null;
   emailBody?: string | null;
   emailButtonText?: string | null;
   emailFooter?: string | null;
   createdAt: string;
+  updatedAt: string;
   assignmentsCount: number;
   submittedCount: number;
   myAssignments?: Evaluation360Assignment[];
@@ -92,7 +115,7 @@ export interface EvalFormData {
   weightDescendente: number;
   weightParalela: number;
   weightAutoevaluacion: number;
-  questions: Eval360Question[];
+  questions: Eval360Questions;
   participants: ParticipantRow[];
   emailSubject: string;
   emailBody: string;

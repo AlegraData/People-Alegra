@@ -27,6 +27,7 @@ export default function EvalParticipants({ evaluation, onBack }: Props) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [actionId, setActionId]       = useState<string | null>(null);
   const [globalMsg, setGlobalMsg]     = useState<{ type: "success" | "error"; msg: string } | null>(null);
+  const [sendInviteOnImport, setSendInviteOnImport] = useState(true);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const fetchAssignments = useCallback(async () => {
@@ -63,19 +64,33 @@ export default function EvalParticipants({ evaluation, onBack }: Props) {
   const handleSendReminder = async (a: Evaluation360Assignment) => {
     setActionId(`remind-${a.id}`);
     try {
-      const res = await fetch(`/api/evaluaciones360/surveys/${evaluation.id}/participants`, {
+      const res = await fetch(`/api/evaluaciones360/surveys/${evaluation.id}/remind`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          participants: [{
-            evaluatorEmail: a.evaluatorEmail, evaluatorName: a.evaluatorName,
-            evaluateeEmail: a.evaluateeEmail, evaluateeName: a.evaluateeName,
-            team: a.team, evaluationType: a.evaluationType,
-          }],
-          sendInvitation: true,
-        }),
+        body: JSON.stringify({ assignmentId: a.id }),
       });
-      if (res.ok) setGlobalMsg({ type: "success", msg: `Recordatorio enviado a ${a.evaluatorEmail}` });
+      if (res.ok) {
+        setGlobalMsg({ type: "success", msg: `Recordatorio enviado a ${a.evaluatorEmail}` });
+      } else {
+        setGlobalMsg({ type: "error", msg: "Error al enviar recordatorio" });
+      }
+    } finally { setActionId(null); }
+  };
+
+  const handleRemindAll = async () => {
+    setActionId("remind-all");
+    try {
+      const res = await fetch(`/api/evaluaciones360/surveys/${evaluation.id}/remind`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sendToAll: true }),
+      });
+      if (res.ok) {
+        const { sent } = await res.json();
+        setGlobalMsg({ type: "success", msg: `Recordatorio enviado a ${sent} evaluador${sent !== 1 ? "es" : ""}` });
+      } else {
+        setGlobalMsg({ type: "error", msg: "Error al enviar recordatorios" });
+      }
     } finally { setActionId(null); }
   };
 
@@ -109,11 +124,12 @@ export default function EvalParticipants({ evaluation, onBack }: Props) {
         const res = await fetch(`/api/evaluaciones360/surveys/${evaluation.id}/participants`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ participants, sendInvitation: false }),
+          body: JSON.stringify({ participants, sendInvitation: sendInviteOnImport }),
         });
         if (res.ok) {
           const { created } = await res.json();
-          setGlobalMsg({ type: "success", msg: `${created} participante${created !== 1 ? "s" : ""} agregados` });
+          const inviteMsg = sendInviteOnImport ? " · Invitaciones enviadas" : "";
+          setGlobalMsg({ type: "success", msg: `${created} participante${created !== 1 ? "s" : ""} agregados${inviteMsg}` });
           await fetchAssignments();
         }
       } catch { setGlobalMsg({ type: "error", msg: "Error al importar el archivo." }); }
@@ -172,13 +188,40 @@ export default function EvalParticipants({ evaluation, onBack }: Props) {
             <p className="text-sm text-[#64748b]">{evaluation.title}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           <button onClick={handleExport} className="flex items-center gap-1.5 text-xs font-bold text-[#64748b] hover:text-primary px-3 py-2 rounded-lg hover:bg-primary/10 transition-colors">
             <Download className="w-3.5 h-3.5" /> Exportar
           </button>
+
+          {/* Toggle invitaciones en import */}
+          <button
+            type="button"
+            onClick={() => setSendInviteOnImport((v) => !v)}
+            title={sendInviteOnImport ? "Importar enviará invitaciones" : "Importar sin enviar invitaciones"}
+            className={`flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-lg transition-colors ${
+              sendInviteOnImport ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200" : "bg-slate-100 text-[#64748b] hover:bg-slate-200"
+            }`}
+          >
+            <Send className="w-3.5 h-3.5" />
+            {sendInviteOnImport ? "Con invitación" : "Sin invitación"}
+          </button>
+
           <button onClick={() => fileRef.current?.click()} className="flex items-center gap-1.5 text-xs font-bold bg-primary/10 text-primary px-3 py-2 rounded-lg hover:bg-primary/20 transition-colors">
             <Upload className="w-3.5 h-3.5" /> Importar
           </button>
+
+          <button
+            onClick={handleRemindAll}
+            disabled={actionId === "remind-all"}
+            title="Enviar recordatorio a todos los pendientes"
+            className="flex items-center gap-1.5 text-xs font-bold bg-amber-100 text-amber-700 px-3 py-2 rounded-lg hover:bg-amber-200 transition-colors disabled:opacity-50"
+          >
+            {actionId === "remind-all"
+              ? <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              : <Send className="w-3.5 h-3.5" />}
+            Recordar a todos
+          </button>
+
           <button onClick={() => setMode(mode === "matrix" ? "add" : "matrix")}
             className="flex items-center gap-1.5 text-xs font-bold bg-[#1e293b] text-white px-4 py-2 rounded-lg hover:bg-primary transition-colors">
             <UserPlus className="w-3.5 h-3.5" />

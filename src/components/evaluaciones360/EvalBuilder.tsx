@@ -6,9 +6,9 @@ import {
 import EmployeeSearchCombobox, { type EmployeeResult } from "@/components/evaluaciones360/EmployeeSearchCombobox";
 import * as XLSX from "xlsx";
 import type {
-  Eval360Question, EvalFormData, ParticipantRow, EvalType, Evaluation360,
+  Eval360Question, Eval360Questions, EvalFormData, ParticipantRow, EvalType, Evaluation360,
 } from "@/types/evaluaciones360";
-import { EVAL_TYPE_LABELS } from "@/types/evaluaciones360";
+import { EVAL_TYPE_LABELS, EVAL_TYPE_COLORS, normalizeQuestions } from "@/types/evaluaciones360";
 import EmailTemplateEditor from "@/components/clima/EmailTemplateEditor";
 import type { EmailTemplateConfig } from "@/types/clima";
 
@@ -39,14 +39,14 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
   const [description, setDescription] = useState(initialData?.description ?? "");
   const [instructions, setInstructions] = useState(initialData?.instructions ?? "");
 
-  const [hasAscendente,    setHasAscendente]    = useState(initialData?.hasAscendente    ?? true);
-  const [hasDescendente,   setHasDescendente]   = useState(initialData?.hasDescendente   ?? true);
-  const [hasParalela,      setHasParalela]       = useState(initialData?.hasParalela      ?? true);
+  const [hasAscendente,     setHasAscendente]     = useState(initialData?.hasAscendente     ?? true);
+  const [hasDescendente,    setHasDescendente]    = useState(initialData?.hasDescendente    ?? true);
+  const [hasParalela,       setHasParalela]        = useState(initialData?.hasParalela       ?? true);
   const [hasAutoevaluacion, setHasAutoevaluacion] = useState(initialData?.hasAutoevaluacion ?? true);
 
-  const [weightAscendente,     setWeightAscendente]     = useState(initialData?.weightAscendente    ?? 25);
-  const [weightDescendente,    setWeightDescendente]    = useState(initialData?.weightDescendente   ?? 25);
-  const [weightParalela,       setWeightParalela]       = useState(initialData?.weightParalela      ?? 25);
+  const [weightAscendente,     setWeightAscendente]     = useState(initialData?.weightAscendente     ?? 25);
+  const [weightDescendente,    setWeightDescendente]    = useState(initialData?.weightDescendente    ?? 25);
+  const [weightParalela,       setWeightParalela]       = useState(initialData?.weightParalela       ?? 25);
   const [weightAutoevaluacion, setWeightAutoevaluacion] = useState(initialData?.weightAutoevaluacion ?? 25);
 
   const [emailExpanded, setEmailExpanded] = useState(false);
@@ -58,56 +58,104 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
   });
 
   // ── Step 2 state ──────────────────────────────────────────────────────────
-  const [questions, setQuestions] = useState<Eval360Question[]>(
-    (initialData?.questions as Eval360Question[]) ?? []
+  const [questions, setQuestions] = useState<Eval360Questions>(
+    normalizeQuestions(initialData ? (initialData.questions as unknown) : null)
   );
+  const [activeTab, setActiveTab] = useState<EvalType>("ascendente");
   const questionsFileRef = useRef<HTMLInputElement>(null);
 
   // ── Step 3 state ──────────────────────────────────────────────────────────
   const [participants, setParticipants] = useState<ParticipantRow[]>([]);
   const participantsFileRef = useRef<HTMLInputElement>(null);
 
-  // ── Weights validation ────────────────────────────────────────────────────
+  // ── Derived ───────────────────────────────────────────────────────────────
+  const enabledTypes: EvalType[] = ALL_TYPES.filter((t) => ({
+    ascendente:     hasAscendente,
+    descendente:    hasDescendente,
+    paralela:       hasParalela,
+    autoevaluacion: hasAutoevaluacion,
+  }[t]));
+
+  const effectiveTab: EvalType = enabledTypes.includes(activeTab) ? activeTab : (enabledTypes[0] ?? "ascendente");
+  const tabQuestions = questions[effectiveTab] ?? [];
+  const totalQuestionWeight = tabQuestions.reduce((s, q) => s + (q.weight ?? 0), 0);
+
   const totalTypeWeight = [
-    hasAscendente    ? weightAscendente    : 0,
-    hasDescendente   ? weightDescendente   : 0,
-    hasParalela      ? weightParalela      : 0,
+    hasAscendente     ? weightAscendente     : 0,
+    hasDescendente    ? weightDescendente    : 0,
+    hasParalela       ? weightParalela       : 0,
     hasAutoevaluacion ? weightAutoevaluacion : 0,
   ].reduce((a, b) => a + b, 0);
 
-  const totalQuestionWeight = questions.reduce((s, q) => s + (q.weight ?? 0), 0);
-
-  // ── Question helpers ──────────────────────────────────────────────────────
+  // ── Question helpers (scoped to effectiveTab) ─────────────────────────────
   const addQuestion = (type: QuestionType) => {
     const base: Eval360Question = { id: Date.now().toString(), text: "", type, weight: 0, required: true };
     if (type === "rating") { base.ratingMin = 1; base.ratingMax = 5; }
     if (type === "choice") base.options = ["", ""];
-    setQuestions((prev) => [...prev, base]);
+    setQuestions((prev) => ({ ...prev, [effectiveTab]: [...(prev[effectiveTab] ?? []), base] }));
   };
 
   const patchQuestion = (id: string, patch: Partial<Eval360Question>) =>
-    setQuestions((prev) => prev.map((q) => (q.id === id ? { ...q, ...patch } : q)));
+    setQuestions((prev) => ({
+      ...prev,
+      [effectiveTab]: (prev[effectiveTab] ?? []).map((q) => (q.id === id ? { ...q, ...patch } : q)),
+    }));
 
-  const removeQuestion = (id: string) => setQuestions((prev) => prev.filter((q) => q.id !== id));
+  const removeQuestion = (id: string) =>
+    setQuestions((prev) => ({
+      ...prev,
+      [effectiveTab]: (prev[effectiveTab] ?? []).filter((q) => q.id !== id),
+    }));
 
   const duplicateQuestion = (id: string) =>
     setQuestions((prev) => {
-      const idx = prev.findIndex((q) => q.id === id);
+      const list = prev[effectiveTab] ?? [];
+      const idx = list.findIndex((q) => q.id === id);
       if (idx === -1) return prev;
-      const clone = { ...prev[idx], options: [...(prev[idx].options ?? [])], id: Date.now().toString() };
-      return [...prev.slice(0, idx + 1), clone, ...prev.slice(idx + 1)];
+      const clone = { ...list[idx], options: [...(list[idx].options ?? [])], id: `${Date.now()}` };
+      return { ...prev, [effectiveTab]: [...list.slice(0, idx + 1), clone, ...list.slice(idx + 1)] };
     });
 
-  const addOption  = (qId: string) => setQuestions((prev) => prev.map((q) => q.id === qId ? { ...q, options: [...(q.options ?? []), ""] } : q));
-  const updateOption = (qId: string, idx: number, value: string) =>
-    setQuestions((prev) => prev.map((q) => q.id === qId ? { ...q, options: (q.options ?? []).map((o, i) => i === idx ? value : o) } : q));
-  const removeOption = (qId: string, idx: number) =>
-    setQuestions((prev) => prev.map((q) => q.id === qId ? { ...q, options: (q.options ?? []).filter((_, i) => i !== idx) } : q));
+  const addOption = (qId: string) =>
+    setQuestions((prev) => ({
+      ...prev,
+      [effectiveTab]: (prev[effectiveTab] ?? []).map((q) =>
+        q.id === qId ? { ...q, options: [...(q.options ?? []), ""] } : q
+      ),
+    }));
 
-  // ── Excel import — questions ──────────────────────────────────────────────
+  const updateOption = (qId: string, idx: number, value: string) =>
+    setQuestions((prev) => ({
+      ...prev,
+      [effectiveTab]: (prev[effectiveTab] ?? []).map((q) =>
+        q.id === qId ? { ...q, options: (q.options ?? []).map((o, i) => i === idx ? value : o) } : q
+      ),
+    }));
+
+  const removeOption = (qId: string, idx: number) =>
+    setQuestions((prev) => ({
+      ...prev,
+      [effectiveTab]: (prev[effectiveTab] ?? []).map((q) =>
+        q.id === qId ? { ...q, options: (q.options ?? []).filter((_, i) => i !== idx) } : q
+      ),
+    }));
+
+  const copyQuestionsFrom = (sourceType: EvalType) => {
+    setQuestions((prev) => ({
+      ...prev,
+      [effectiveTab]: (prev[sourceType] ?? []).map((q) => ({
+        ...q,
+        id: `${q.id}-copy-${Date.now()}`,
+        options: [...(q.options ?? [])],
+      })),
+    }));
+  };
+
+  // ── Excel import — questions (adds to current tab) ────────────────────────
   const handleQuestionsExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const tab = effectiveTab;
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
@@ -136,7 +184,7 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
             }
             return q;
           });
-        setQuestions((prev) => [...prev, ...imported]);
+        setQuestions((prev) => ({ ...prev, [tab]: [...(prev[tab] ?? []), ...imported] }));
       } catch { alert("Error al leer el archivo. Verifica el formato."); }
     };
     reader.readAsBinaryString(file);
@@ -163,8 +211,8 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
           .map((r) => ({
             evaluatorEmail: (r["Correo Evaluador"] || r["correo_evaluador"] || "").toString().trim().toLowerCase(),
             evaluatorName:  (r["Nombre Evaluador"] || r["nombre_evaluador"] || "").toString().trim(),
-            evaluateeEmail: (r["Correo Evaluado"] || r["correo_evaluado"] || "").toString().trim().toLowerCase(),
-            evaluateeName:  (r["Nombre Evaluado"] || r["nombre_evaluado"] || "").toString().trim(),
+            evaluateeEmail: (r["Correo Evaluado"]  || r["correo_evaluado"]  || "").toString().trim().toLowerCase(),
+            evaluateeName:  (r["Nombre Evaluado"]  || r["nombre_evaluado"]  || "").toString().trim(),
             team:           (r["Equipo"] || r["equipo"] || "").toString().trim(),
             evaluationType: typeMap[(r["Tipo"] || r["tipo"] || "").toString().trim().toLowerCase()] ?? "paralela",
           }))
@@ -179,12 +227,12 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
   const downloadQuestionsTemplate = () => {
     const ws = XLSX.utils.aoa_to_sheet([
       ["Categoría", "Pregunta", "Tipo", "Peso", "Min", "Max", "Opciones"],
-      ["Liderazgo", "¿Comunica la visión claramente?", "rating", 15, 1, 5, ""],
-      ["Liderazgo", "¿Inspira con el ejemplo?", "rating", 10, 1, 5, ""],
-      ["Comunicación", "¿Es asertivo en su comunicación?", "rating", 12, 1, 5, ""],
-      ["Comunicación", "¿Escucha activamente?", "boolean", 8, "", "", ""],
-      ["General", "¿Qué mejorarías de esta persona?", "text", 5, "", "", ""],
-      ["General", "¿Cómo calificarías su desempeño?", "choice", 10, "", "", "Excelente|Bueno|Regular|Bajo"],
+      ["Liderazgo",     "¿Comunica la visión claramente?",  "rating",  15, 1, 5, ""],
+      ["Liderazgo",     "¿Inspira con el ejemplo?",         "rating",  10, 1, 5, ""],
+      ["Comunicación",  "¿Es asertivo en su comunicación?", "rating",  12, 1, 5, ""],
+      ["Comunicación",  "¿Escucha activamente?",            "boolean",  8, "", "", ""],
+      ["General",       "¿Qué mejorarías de esta persona?", "text",     5, "", "", ""],
+      ["General",       "¿Cómo calificarías su desempeño?", "choice",  10, "", "", "Excelente|Bueno|Regular|Bajo"],
     ]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Preguntas");
@@ -193,11 +241,11 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
 
   const downloadParticipantsTemplate = () => {
     const ws = XLSX.utils.aoa_to_sheet([
-      ["Correo Evaluador", "Nombre Evaluador", "Correo Evaluado", "Nombre Evaluado", "Equipo", "Tipo"],
-      ["juan@empresa.com", "Juan Pérez", "maria@empresa.com", "María García", "Tech", "descendente"],
-      ["pedro@empresa.com", "Pedro López", "maria@empresa.com", "María García", "Tech", "paralela"],
-      ["maria@empresa.com", "María García", "maria@empresa.com", "María García", "Tech", "autoevaluacion"],
-      ["maria@empresa.com", "María García", "juan@empresa.com", "Juan Pérez", "Tech", "ascendente"],
+      ["Correo Evaluador", "Correo Evaluado", "Equipo", "Tipo"],
+      ["juan@empresa.com",  "maria@empresa.com", "Tech", "descendente"],
+      ["pedro@empresa.com", "maria@empresa.com", "Tech", "paralela"],
+      ["maria@empresa.com", "maria@empresa.com", "Tech", "autoevaluacion"],
+      ["maria@empresa.com", "juan@empresa.com",  "Tech", "ascendente"],
     ]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Participantes");
@@ -210,15 +258,37 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
   const goToStep = (next: Step) => {
     if (next >= 2 && !title.trim()) { alert("Agrega un título a la evaluación."); return; }
     if (next >= 2 && Math.abs(totalTypeWeight - 100) > 1) {
-      alert(`Los pesos por tipo de evaluación deben sumar 100%. Suma actual: ${totalTypeWeight}%`); return;
+      alert(`Los pesos por tipo deben sumar 100%. Suma actual: ${totalTypeWeight}%`); return;
     }
-    if (next >= 3 && questions.length === 0) { alert("Agrega al menos una pregunta."); return; }
+    if (next >= 3) {
+      for (const type of enabledTypes) {
+        const qs = questions[type] ?? [];
+        if (qs.length === 0) {
+          alert(`"${EVAL_TYPE_LABELS[type]}" no tiene preguntas. Agrega al menos una.`);
+          setActiveTab(type); return;
+        }
+        const w = qs.reduce((s, q) => s + (q.weight ?? 0), 0);
+        if (Math.abs(w - 100) > 1) {
+          alert(`Los pesos de "${EVAL_TYPE_LABELS[type]}" deben sumar 100%. Suma actual: ${w}%`);
+          setActiveTab(type); return;
+        }
+      }
+    }
     setStep(next);
   };
 
   const handleConfirm = () => {
-    if (Math.abs(totalQuestionWeight - 100) > 1) {
-      alert(`Los pesos de las preguntas deben sumar 100%. Suma actual: ${totalQuestionWeight}%`); return;
+    for (const type of enabledTypes) {
+      const qs = questions[type] ?? [];
+      if (qs.length === 0) {
+        alert(`"${EVAL_TYPE_LABELS[type]}" no tiene preguntas.`);
+        setActiveTab(type); setStep(2); return;
+      }
+      const w = qs.reduce((s, q) => s + (q.weight ?? 0), 0);
+      if (Math.abs(w - 100) > 1) {
+        alert(`Los pesos de "${EVAL_TYPE_LABELS[type]}" deben sumar 100%. Suma actual: ${w}%`);
+        setActiveTab(type); setStep(2); return;
+      }
     }
     if (!isEditMode && participants.length === 0) { alert("Agrega al menos un participante."); return; }
     onSave({
@@ -286,7 +356,6 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
             </div>
           </div>
 
-          {/* Título */}
           <div>
             <label className="block text-xs font-bold uppercase text-[#64748b] mb-2">Título *</label>
             <input
@@ -297,7 +366,6 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
             />
           </div>
 
-          {/* Descripción */}
           <div>
             <label className="block text-xs font-bold uppercase text-[#64748b] mb-2">Descripción</label>
             <textarea
@@ -309,7 +377,6 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
             />
           </div>
 
-          {/* Instrucciones */}
           <div>
             <label className="block text-xs font-bold uppercase text-[#64748b] mb-2">Instrucciones para evaluadores</label>
             <textarea
@@ -329,8 +396,8 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
             </div>
             <div className="p-5 space-y-3">
               {ALL_TYPES.map((type) => {
-                const enabled = { ascendente: hasAscendente, descendente: hasDescendente, paralela: hasParalela, autoevaluacion: hasAutoevaluacion }[type];
-                const weight  = { ascendente: weightAscendente, descendente: weightDescendente, paralela: weightParalela, autoevaluacion: weightAutoevaluacion }[type];
+                const enabled    = { ascendente: hasAscendente, descendente: hasDescendente, paralela: hasParalela, autoevaluacion: hasAutoevaluacion }[type];
+                const weight     = { ascendente: weightAscendente, descendente: weightDescendente, paralela: weightParalela, autoevaluacion: weightAutoevaluacion }[type];
                 const setEnabled = { ascendente: setHasAscendente, descendente: setHasDescendente, paralela: setHasParalela, autoevaluacion: setHasAutoevaluacion }[type];
                 const setWeight  = { ascendente: setWeightAscendente, descendente: setWeightDescendente, paralela: setWeightParalela, autoevaluacion: setWeightAutoevaluacion }[type];
                 return (
@@ -360,8 +427,8 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
               <div className={`flex items-center justify-end gap-2 pt-2 border-t border-slate-100 ${Math.abs(totalTypeWeight - 100) > 1 ? "text-red-500" : "text-emerald-600"}`}>
                 <span className="text-xs font-bold">Total:</span>
                 <span className="text-sm font-black">{totalTypeWeight}%</span>
-                {Math.abs(totalTypeWeight - 100) > 1 && <AlertTriangle className="w-4 h-4" />}
-                {Math.abs(totalTypeWeight - 100) <= 1 && <CheckCircle2 className="w-4 h-4" />}
+                {Math.abs(totalTypeWeight - 100) > 1  && <AlertTriangle className="w-4 h-4" />}
+                {Math.abs(totalTypeWeight - 100) <= 1 && <CheckCircle2  className="w-4 h-4" />}
               </div>
             </div>
           </div>
@@ -406,7 +473,7 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
         </div>
       )}
 
-      {/* ─── STEP 2: Preguntas ───────────────────────────────────────────────── */}
+      {/* ─── STEP 2: Preguntas por tipo ──────────────────────────────────────── */}
       {step === 2 && (
         <div className="bg-white rounded-[2rem] p-8 border border-slate-100 shadow-sm space-y-6">
           <div className="flex items-center gap-4">
@@ -414,10 +481,9 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
               <ArrowLeft className="w-5 h-5" />
             </button>
             <div className="flex-1">
-              <h3 className="text-xl font-bold">Preguntas</h3>
-              <p className="text-sm text-[#64748b]">Aplican a todos los tipos de evaluación</p>
+              <h3 className="text-xl font-bold">Preguntas por tipo</h3>
+              <p className="text-sm text-[#64748b]">Cada tipo de evaluación tiene su propio formulario de preguntas</p>
             </div>
-            {/* Excel import */}
             <div className="flex items-center gap-2">
               <button
                 onClick={downloadQuestionsTemplate}
@@ -437,17 +503,50 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
             </div>
           </div>
 
-          {/* Indicador de peso total */}
+          {/* Tabs por tipo */}
+          <div className="flex gap-2 flex-wrap">
+            {enabledTypes.map((type) => {
+              const qs      = questions[type] ?? [];
+              const w       = qs.reduce((s, q) => s + (q.weight ?? 0), 0);
+              const isOk    = Math.abs(w - 100) <= 1 && qs.length > 0;
+              const isEmpty = qs.length === 0;
+              const isActive = effectiveTab === type;
+              return (
+                <button
+                  key={type}
+                  onClick={() => setActiveTab(type)}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all border ${
+                    isActive
+                      ? "bg-[#1e293b] text-white border-[#1e293b]"
+                      : "bg-white text-[#64748b] border-slate-200 hover:border-slate-300 hover:text-[#1e293b]"
+                  }`}
+                >
+                  {EVAL_TYPE_LABELS[type]}
+                  <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${
+                    isOk    ? "bg-emerald-100 text-emerald-700" :
+                    isEmpty ? (isActive ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500") :
+                              (isActive ? "bg-amber-200 text-amber-800" : "bg-amber-100 text-amber-700")
+                  }`}>
+                    {qs.length} · {w}%
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Indicador de peso del tab activo */}
           <div className={`flex items-center justify-between px-4 py-2.5 rounded-xl border ${
-            questions.length === 0 ? "border-slate-200 bg-slate-50" :
+            tabQuestions.length === 0 ? "border-slate-200 bg-slate-50" :
             Math.abs(totalQuestionWeight - 100) <= 1 ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"
           }`}>
-            <span className="text-xs font-semibold text-[#64748b]">Peso total de preguntas:</span>
+            <span className="text-xs font-semibold text-[#64748b]">
+              Peso total — <strong>{EVAL_TYPE_LABELS[effectiveTab]}</strong>:
+            </span>
             <div className="flex items-center gap-2">
               <span className={`text-sm font-black ${Math.abs(totalQuestionWeight - 100) <= 1 ? "text-emerald-700" : "text-amber-700"}`}>
                 {totalQuestionWeight}%
               </span>
-              {questions.length > 0 && (
+              {tabQuestions.length > 0 && (
                 Math.abs(totalQuestionWeight - 100) <= 1
                   ? <CheckCircle2 className="w-4 h-4 text-emerald-500" />
                   : <AlertTriangle className="w-4 h-4 text-amber-500" />
@@ -455,33 +554,51 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
             </div>
           </div>
 
-          {/* Lista de preguntas */}
-          {questions.length === 0 && (
+          {/* Copiar preguntas de otro tipo (solo cuando el tab está vacío) */}
+          {enabledTypes.length > 1 && tabQuestions.length === 0 && (
+            <div className="flex flex-wrap items-center gap-2 bg-slate-50 rounded-xl px-4 py-3 border border-dashed border-slate-200">
+              <span className="text-xs font-bold text-[#64748b]">Copiar preguntas de:</span>
+              {enabledTypes
+                .filter((t) => t !== effectiveTab && (questions[t] ?? []).length > 0)
+                .map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => copyQuestionsFrom(t)}
+                    className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-colors border ${EVAL_TYPE_COLORS[t]}`}
+                  >
+                    {EVAL_TYPE_LABELS[t]} ({questions[t]?.length ?? 0})
+                  </button>
+                ))}
+              {enabledTypes.filter((t) => t !== effectiveTab && (questions[t] ?? []).length > 0).length === 0 && (
+                <span className="text-xs text-slate-400">No hay preguntas en otros tipos todavía.</span>
+              )}
+            </div>
+          )}
+
+          {/* Lista de preguntas del tab activo */}
+          {tabQuestions.length === 0 && (
             <div className="py-10 text-center text-sm text-[#64748b] bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-              Sin preguntas aún. Agrega manualmente o importa desde Excel.
+              Sin preguntas para <strong>{EVAL_TYPE_LABELS[effectiveTab]}</strong>. Agrega manualmente, importa desde Excel o copia de otro tipo.
             </div>
           )}
 
           <div className="space-y-3">
-            {questions.map((q, i) => (
+            {tabQuestions.map((q, i) => (
               <div key={q.id} className="flex gap-3 items-start p-4 border border-slate-100 rounded-xl hover:border-slate-200 transition-colors">
                 <span className="bg-slate-100 text-[#64748b] font-bold w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-xs mt-0.5">{i + 1}</span>
                 <div className="flex-1 min-w-0 space-y-2">
-                  {/* Categoría */}
                   <input
                     value={q.category ?? ""}
                     onChange={(e) => patchQuestion(q.id, { category: e.target.value })}
                     className="w-full text-xs font-bold text-primary bg-transparent outline-none placeholder:text-slate-300"
                     placeholder="Categoría (opcional)"
                   />
-                  {/* Texto */}
                   <input
                     value={q.text}
                     onChange={(e) => patchQuestion(q.id, { text: e.target.value })}
                     className="w-full bg-transparent border-b border-slate-200 py-1 outline-none focus:border-primary transition-colors font-medium"
                     placeholder="Escribe la pregunta..."
                   />
-                  {/* Controles */}
                   <div className="flex items-center gap-3 flex-wrap">
                     <span className="text-[10px] font-bold uppercase text-primary bg-primary/10 px-2 py-0.5 rounded-md">
                       {QUESTION_TYPE_LABELS[q.type]}
@@ -502,7 +619,6 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
                       <span className="text-[10px] font-bold text-[#64748b]">%</span>
                     </div>
                   </div>
-                  {/* Rating config */}
                   {q.type === "rating" && (
                     <div className="flex items-center gap-2 mt-1">
                       <span className="text-xs font-bold text-[#64748b]">Rango:</span>
@@ -513,7 +629,6 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
                         className="w-14 text-center text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-primary" />
                     </div>
                   )}
-                  {/* Choice options */}
                   {q.type === "choice" && (
                     <div className="mt-2 space-y-1.5">
                       {(q.options ?? []).map((opt, idx) => (
@@ -594,10 +709,8 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
             </div>
           </div>
 
-          {/* Agregar manual */}
           <AddParticipantForm onAdd={(p) => setParticipants((prev) => [...prev, p])} />
 
-          {/* Lista */}
           {participants.length === 0 ? (
             <div className="py-10 text-center text-sm text-[#64748b] bg-slate-50 rounded-2xl border border-dashed border-slate-200">
               Sin participantes aún. Importa desde Excel o agrega manualmente.
@@ -679,30 +792,16 @@ function AddParticipantForm({ onAdd }: { onAdd: (p: ParticipantRow) => void }) {
       team:           team.trim() || evaluatee.equipo || "",
       evaluationType: evalType,
     });
-    setEvaluator(null);
-    setEvaluatee(null);
-    setTeam("");
-    setEvalType("paralela");
-    setEvKey((k) => k + 1);
-    setEeKey((k) => k + 1);
+    setEvaluator(null); setEvaluatee(null); setTeam(""); setEvalType("paralela");
+    setEvKey((k) => k + 1); setEeKey((k) => k + 1);
   };
 
   return (
     <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 space-y-3">
       <p className="text-xs font-bold text-[#64748b] uppercase">Agregar participante</p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <EmployeeSearchCombobox
-          key={`ev-${evKey}`}
-          label="Evaluador *"
-          placeholder="Buscar por nombre o correo..."
-          onSelect={setEvaluator}
-        />
-        <EmployeeSearchCombobox
-          key={`ee-${eeKey}`}
-          label="Evaluado *"
-          placeholder="Buscar por nombre o correo..."
-          onSelect={setEvaluatee}
-        />
+        <EmployeeSearchCombobox key={`ev-${evKey}`} label="Evaluador *" placeholder="Buscar por nombre o correo..." onSelect={setEvaluator} />
+        <EmployeeSearchCombobox key={`ee-${eeKey}`} label="Evaluado *"  placeholder="Buscar por nombre o correo..." onSelect={setEvaluatee} />
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
@@ -739,14 +838,8 @@ function AddParticipantForm({ onAdd }: { onAdd: (p: ParticipantRow) => void }) {
 }
 
 function TypeBadge({ type }: { type: EvalType }) {
-  const styles: Record<EvalType, string> = {
-    ascendente:     "bg-blue-100 text-blue-700",
-    descendente:    "bg-violet-100 text-violet-700",
-    paralela:       "bg-amber-100 text-amber-700",
-    autoevaluacion: "bg-emerald-100 text-emerald-700",
-  };
   return (
-    <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${styles[type]}`}>
+    <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${EVAL_TYPE_COLORS[type]}`}>
       {EVAL_TYPE_LABELS[type]}
     </span>
   );

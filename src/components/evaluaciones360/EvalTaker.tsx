@@ -5,7 +5,7 @@ import {
   ChevronRight, Clock, User, Users,
 } from "lucide-react";
 import type { Evaluation360, Evaluation360Assignment, Eval360Question, EvalType } from "@/types/evaluaciones360";
-import { EVAL_TYPE_LABELS, EVAL_TYPE_COLORS } from "@/types/evaluaciones360";
+import { EVAL_TYPE_LABELS, EVAL_TYPE_COLORS, normalizeQuestions } from "@/types/evaluaciones360";
 
 interface Props {
   evaluation: Evaluation360;
@@ -23,7 +23,7 @@ const STATUS_LABELS: Record<string, { label: string; style: string }> = {
 };
 
 export default function EvalTaker({ evaluation, onBack, userEmail }: Props) {
-  const questions = evaluation.questions as Eval360Question[];
+  const questionsMap  = normalizeQuestions(evaluation.questions as unknown);
   const myAssignments = evaluation.myAssignments ?? [];
 
   const [phase, setPhase]                     = useState<TakePhase>("list");
@@ -40,8 +40,11 @@ export default function EvalTaker({ evaluation, onBack, userEmail }: Props) {
 
   useEffect(() => () => { if (autoSaveTimeout.current) clearTimeout(autoSaveTimeout.current); }, []);
 
+  const questions: Eval360Question[] = selectedAssignment
+    ? (questionsMap[selectedAssignment.evaluationType] ?? [])
+    : [];
   const currentQ = questions[currentIndex];
-  const progress = questions.length > 0 ? ((Object.keys(answers).length) / questions.length) * 100 : 0;
+  const progress = questions.length > 0 ? ((currentIndex + 1) / questions.length) * 100 : 0;
 
   // ── Auto-save ─────────────────────────────────────────────────────────────
   const autoSave = useCallback(
