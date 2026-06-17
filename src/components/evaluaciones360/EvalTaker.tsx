@@ -488,12 +488,6 @@ function QuestionInput({ q, value, onChange }: { q: Eval360Question; value: stri
             </button>
           ))}
         </div>
-        {steps.length > 5 && (
-          <div className="flex justify-between mt-2 px-1">
-            <span className="text-xs text-[#94a3b8]">{min} — Bajo</span>
-            <span className="text-xs text-[#94a3b8]">{max} — Excelente</span>
-          </div>
-        )}
       </div>
     );
   }
