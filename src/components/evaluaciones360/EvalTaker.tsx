@@ -1,8 +1,8 @@
 "use client";
 import { useState, useRef, useCallback, useEffect } from "react";
 import {
-  ArrowLeft, ArrowRight, CheckCircle2, Pencil, Send, AlertCircle,
-  ChevronRight, Clock, User, Users,
+  ArrowLeft, ArrowRight, CheckCircle2, Pencil, AlertCircle,
+  ChevronRight, Clock, Users,
 } from "lucide-react";
 import type { Evaluation360, Evaluation360Assignment, Eval360Question, EvalType } from "@/types/evaluaciones360";
 import { EVAL_TYPE_LABELS, EVAL_TYPE_COLORS, normalizeQuestions } from "@/types/evaluaciones360";
@@ -114,7 +114,7 @@ export default function EvalTaker({ evaluation, onBack, userEmail }: Props) {
     if (currentIndex > 0) { setError(null); transition(() => setCurrentIndex((i) => i - 1)); }
   };
 
-  // ── Complete (save final, not yet submitted) ──────────────────────────────
+  // ── Enviar evaluación directamente ───────────────────────────────────────
   const handleComplete = async () => {
     const unanswered = questions.filter((q) => q.required && (answers[q.id] === undefined || answers[q.id] === ""));
     if (unanswered.length > 0) {
@@ -126,28 +126,9 @@ export default function EvalTaker({ evaluation, onBack, userEmail }: Props) {
     setSubmitting(true);
     try {
       await fetch(`/api/evaluaciones360/surveys/${evaluation.id}/assignments/${selectedAssignment.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ finalAnswers: answers, status: "completed" }),
-      });
-      setAssignments((prev) =>
-        prev.map((a) => a.id === selectedAssignment.id ? { ...a, status: "completed", finalAnswers: answers } : a)
-      );
-      setSelected((prev) => prev ? { ...prev, status: "completed", finalAnswers: answers } : null);
-      setPhase("completed");
-    } catch { setError("Error al guardar. Intenta de nuevo."); }
-    finally { setSubmitting(false); }
-  };
-
-  // ── Submit (send definitively) ────────────────────────────────────────────
-  const handleSubmit = async () => {
-    if (!selectedAssignment) return;
-    setSubmitting(true);
-    try {
-      await fetch(`/api/evaluaciones360/surveys/${evaluation.id}/assignments/${selectedAssignment.id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ finalAnswers: selectedAssignment.finalAnswers ?? answers }),
+        body: JSON.stringify({ finalAnswers: answers }),
       });
       setAssignments((prev) =>
         prev.map((a) => a.id === selectedAssignment.id ? { ...a, status: "submitted" } : a)
@@ -201,15 +182,17 @@ export default function EvalTaker({ evaluation, onBack, userEmail }: Props) {
             return (
               <button
                 key={a.id}
-                disabled={isSubmitted}
                 onClick={() => selectAssignment(a)}
-                className={`w-full bg-white rounded-2xl p-4 border transition-all text-left flex items-center gap-4 ${
-                  isSubmitted ? "border-emerald-100 opacity-75 cursor-not-allowed" : "border-slate-100 hover:border-primary/30 hover:shadow-sm cursor-pointer"
+                className={`w-full bg-white rounded-2xl p-4 border transition-all text-left flex items-center gap-4 cursor-pointer ${
+                  isSubmitted
+                    ? "border-emerald-100 hover:border-primary/30 hover:shadow-sm"
+                    : "border-slate-100 hover:border-primary/30 hover:shadow-sm"
                 }`}
               >
-                <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center shrink-0">
-                  <User className="w-5 h-5 text-slate-400" />
-                </div>
+                <AvatarCircle
+                  avatarUrl={a.evaluateeAvatarUrl}
+                  name={a.evaluateeName || a.evaluateeEmail}
+                />
                 <div className="flex-1 min-w-0">
                   <p className="font-bold text-[#1e293b] truncate">{a.evaluateeName || a.evaluateeEmail}</p>
                   <div className="flex items-center gap-2 mt-0.5 flex-wrap">
@@ -219,8 +202,9 @@ export default function EvalTaker({ evaluation, onBack, userEmail }: Props) {
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
                   <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${st.style}`}>{st.label}</span>
-                  {!isSubmitted && <ChevronRight className="w-4 h-4 text-slate-300" />}
-                  {isSubmitted && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
+                  {isSubmitted
+                    ? <Pencil className="w-4 h-4 text-slate-400" />
+                    : <ChevronRight className="w-4 h-4 text-slate-300" />}
                 </div>
               </button>
             );
@@ -255,6 +239,15 @@ export default function EvalTaker({ evaluation, onBack, userEmail }: Props) {
               </div>
             )}
 
+            {selectedAssignment?.status === "submitted" && (
+              <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4 mb-6">
+                <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <p className="text-sm font-semibold text-amber-800">
+                  Estás editando una evaluación ya enviada. Al enviar, tus respuestas anteriores serán reemplazadas.
+                </p>
+              </div>
+            )}
+
             <div className="flex items-center gap-2 mb-8">
               <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#64748b] bg-slate-100 px-3 py-1.5 rounded-full">
                 <span className="w-1.5 h-1.5 rounded-full bg-primary" />
@@ -276,7 +269,11 @@ export default function EvalTaker({ evaluation, onBack, userEmail }: Props) {
                 onClick={() => { setPhase("question"); setCurrentIndex(0); }}
                 className="flex items-center gap-2 bg-[#1e293b] text-white px-8 py-3.5 rounded-2xl font-bold hover:bg-primary hover:shadow-lg hover:shadow-primary/20 transition-all"
               >
-                {selectedAssignment?.status === "in_progress" ? "Continuar evaluación" : "Comenzar evaluación"}
+                {selectedAssignment?.status === "submitted"
+                  ? "Editar evaluación"
+                  : selectedAssignment?.status === "in_progress"
+                  ? "Continuar evaluación"
+                  : "Comenzar evaluación"}
                 <ChevronRight className="w-4 h-4" />
               </button>
             </div>
@@ -418,50 +415,23 @@ export default function EvalTaker({ evaluation, onBack, userEmail }: Props) {
           })}
         </div>
 
+        {selectedAssignment?.status === "submitted" && (
+          <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4">
+            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <p className="text-sm font-semibold text-amber-800">
+              Estás editando una evaluación ya enviada. Al enviar, tus respuestas anteriores serán reemplazadas.
+            </p>
+          </div>
+        )}
+
         {error && <p className="text-sm text-red-600 font-semibold bg-red-50 px-4 py-3 rounded-xl border border-red-200">{error}</p>}
 
         <div className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm flex justify-end">
           <button onClick={handleComplete} disabled={submitting}
-            className="flex items-center gap-2 bg-[#1e293b] text-white px-8 py-3 rounded-xl font-bold hover:bg-primary hover:shadow-lg hover:shadow-primary/20 transition-all disabled:opacity-50">
+            className="flex items-center gap-2 bg-primary text-white px-8 py-3 rounded-xl font-bold hover:shadow-lg hover:shadow-primary/20 transition-all disabled:opacity-50">
             {submitting ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-            {submitting ? "Guardando..." : "Completar evaluación"}
+            {submitting ? "Enviando..." : "Enviar evaluación"}
           </button>
-        </div>
-      </div>
-    );
-  }
-
-  // ── COMPLETED PHASE ───────────────────────────────────────────────────────
-  if (phase === "completed") {
-    return (
-      <div className="max-w-2xl mx-auto">
-        <div className="relative bg-white rounded-[2rem] p-14 border border-slate-100 shadow-sm text-center flex flex-col items-center overflow-hidden">
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-64 bg-primary/10 rounded-full blur-3xl pointer-events-none" />
-          <CheckCircle2 className="relative w-16 h-16 text-primary mb-6" />
-          <h3 className="relative text-2xl font-bold text-[#1e293b] mb-2">¡Evaluación completada!</h3>
-          <p className="relative text-[#64748b] mb-2">Para: <strong>{selectedAssignment!.evaluateeName || selectedAssignment!.evaluateeEmail}</strong></p>
-          <p className="relative text-sm text-[#94a3b8] mb-10">
-            Revisa tus respuestas y cuando estés listo, envía la evaluación.<br/>
-            Una vez enviada no podrás modificarla.
-          </p>
-
-          <div className="relative flex flex-col gap-3 w-full max-w-xs">
-            <button
-              onClick={handleSubmit}
-              disabled={submitting}
-              className="flex items-center justify-center gap-2 bg-primary text-white px-8 py-4 rounded-2xl font-bold text-base hover:shadow-lg hover:shadow-primary/20 transition-all disabled:opacity-50"
-            >
-              {submitting ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Send className="w-5 h-5" />}
-              {submitting ? "Enviando..." : "Enviar evaluación"}
-            </button>
-            <button
-              onClick={() => setPhase("list")}
-              className="text-sm font-bold text-[#64748b] hover:text-[#1e293b] py-3 transition-colors"
-            >
-              <ArrowLeft className="w-4 h-4 inline mr-1" />
-              Volver a la lista
-            </button>
-          </div>
         </div>
       </div>
     );
@@ -538,5 +508,43 @@ function TypeBadge({ type, large }: { type: EvalType; large?: boolean }) {
     <span className={`inline-block rounded-full font-black uppercase ${large ? "text-xs px-3 py-1" : "text-[10px] px-2 py-0.5"} ${EVAL_TYPE_COLORS[type]}`}>
       {EVAL_TYPE_LABELS[type]}
     </span>
+  );
+}
+
+const AVATAR_COLORS = [
+  "bg-blue-500", "bg-violet-500", "bg-amber-500", "bg-emerald-500",
+  "bg-rose-500", "bg-indigo-500", "bg-teal-500", "bg-orange-500",
+];
+
+function getAvatarColor(str: string) {
+  const hash = str.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  return AVATAR_COLORS[hash % AVATAR_COLORS.length];
+}
+
+function getInitials(nameOrEmail: string) {
+  const parts = nameOrEmail.trim().split(/[\s@._-]+/);
+  if (parts.length >= 2 && parts[0] && parts[1]) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  return nameOrEmail.slice(0, 2).toUpperCase();
+}
+
+function AvatarCircle({ avatarUrl, name }: { avatarUrl?: string | null; name: string }) {
+  if (avatarUrl) {
+    return (
+      <img
+        src={avatarUrl}
+        alt={name}
+        className="w-10 h-10 rounded-xl object-cover shrink-0"
+        onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+      />
+    );
+  }
+  const color    = getAvatarColor(name);
+  const initials = getInitials(name);
+  return (
+    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${color}`}>
+      <span className="text-xs font-black text-white">{initials}</span>
+    </div>
   );
 }

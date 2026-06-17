@@ -71,6 +71,16 @@ export async function GET() {
       where: { evaluationId: { in: myEvalIds }, evaluatorEmail: user.email! },
     });
 
+    // Obtener avatares de los evaluados desde user_roles
+    const evaluateeEmails = [...new Set(userAssignments.map((a) => a.evaluateeEmail))];
+    const { data: avatarRows } = await supabaseAdmin
+      .from("user_roles")
+      .select("email, avatar_url")
+      .in("email", evaluateeEmails);
+    const avatarMap = new Map<string, string | null>(
+      (avatarRows ?? []).map((u: { email: string; avatar_url: string | null }) => [u.email, u.avatar_url])
+    );
+
     const assignmentsByEval = new Map<string, typeof userAssignments>();
     userAssignments.forEach((a) => {
       assignmentsByEval.set(a.evaluationId, [...(assignmentsByEval.get(a.evaluationId) ?? []), a]);
@@ -81,7 +91,10 @@ export async function GET() {
         ...e,
         assignmentsCount: assignmentsByEval.get(e.id)?.length ?? 0,
         submittedCount:   assignmentsByEval.get(e.id)?.filter((a) => a.status === "submitted").length ?? 0,
-        myAssignments:    assignmentsByEval.get(e.id) ?? [],
+        myAssignments:    (assignmentsByEval.get(e.id) ?? []).map((a) => ({
+          ...a,
+          evaluateeAvatarUrl: avatarMap.get(a.evaluateeEmail) ?? null,
+        })),
       }))
     );
   } catch (error) {

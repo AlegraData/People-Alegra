@@ -75,7 +75,6 @@ export async function POST(request: Request, { params }: Ctx) {
     const assignment = await prisma.evaluation360Assignment.findUnique({ where: { id: assignmentId } });
     if (!assignment) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
     if (assignment.evaluatorEmail !== user.email) return NextResponse.json({ error: "Sin permiso" }, { status: 403 });
-    if (assignment.status === "submitted") return NextResponse.json({ error: "Ya fue enviada" }, { status: 400 });
 
     const body = await request.json();
     const { finalAnswers } = body;
@@ -86,7 +85,12 @@ export async function POST(request: Request, { params }: Ctx) {
     const now = new Date();
     const updated = await prisma.evaluation360Assignment.update({
       where: { id: assignmentId },
-      data: { finalAnswers, status: "submitted", completedAt: now, submittedAt: now },
+      data: {
+        finalAnswers,
+        status: "submitted",
+        completedAt: now,
+        submittedAt: now,
+      },
     });
 
     return NextResponse.json(updated);

@@ -84,6 +84,7 @@ export interface Evaluation360Assignment {
   evaluatorName?: string | null;
   evaluateeEmail: string;
   evaluateeName?: string | null;
+  evaluateeAvatarUrl?: string | null;
   team?: string | null;
   evaluationType: EvalType;
   status: AssignmentStatus;
