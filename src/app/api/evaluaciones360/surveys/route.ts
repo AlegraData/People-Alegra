@@ -81,6 +81,20 @@ export async function GET() {
       (avatarRows ?? []).map((u: { email: string; avatar_url: string | null }) => [u.email, u.avatar_url])
     );
 
+    // Fallback: buscar en auth.users para correos sin avatar en user_roles
+    const emailsMissingAvatar = evaluateeEmails.filter((e) => !avatarMap.get(e));
+    if (emailsMissingAvatar.length > 0) {
+      try {
+        const { data: authData } = await supabaseAdmin.auth.admin.listUsers({ perPage: 1000 });
+        (authData?.users ?? []).forEach((u) => {
+          if (u.email && emailsMissingAvatar.includes(u.email)) {
+            const authAvatar = (u.user_metadata?.avatar_url as string | null) ?? null;
+            if (authAvatar) avatarMap.set(u.email, authAvatar);
+          }
+        });
+      } catch { /* silent — avatars are optional */ }
+    }
+
     const assignmentsByEval = new Map<string, typeof userAssignments>();
     userAssignments.forEach((a) => {
       assignmentsByEval.set(a.evaluationId, [...(assignmentsByEval.get(a.evaluationId) ?? []), a]);

@@ -530,18 +530,20 @@ function getInitials(nameOrEmail: string) {
 }
 
 function AvatarCircle({ avatarUrl, name }: { avatarUrl?: string | null; name: string }) {
-  if (avatarUrl) {
+  const [imgError, setImgError] = useState(false);
+  const color    = getAvatarColor(name);
+  const initials = getInitials(name);
+
+  if (avatarUrl && !imgError) {
     return (
       <img
         src={avatarUrl}
         alt={name}
         className="w-10 h-10 rounded-xl object-cover shrink-0"
-        onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+        onError={() => setImgError(true)}
       />
     );
   }
-  const color    = getAvatarColor(name);
-  const initials = getInitials(name);
   return (
     <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${color}`}>
       <span className="text-xs font-black text-white">{initials}</span>
