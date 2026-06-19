@@ -11,10 +11,11 @@ import OrgNodeComponent, { type OrgNodeData } from "./OrgNode";
 import type { OrgData } from "@/app/api/organigrama/route";
 
 // ── Constantes de layout ─────────────────────────────────────────────────────
-const NODE_W = 200;
-const NODE_H = 100;   // alto aproximado del nodo
-const PAD_X  = 16;   // espacio horizontal entre hermanos
-const PAD_Y  = 56;   // espacio vertical entre niveles
+const NODE_W   = 300;
+const NODE_H   = 155;  // alto aproximado del nodo
+const PAD_X    = 12;   // espacio horizontal entre hermanos
+const PAD_Y    = 65;   // espacio vertical entre niveles
+const MAX_COLS = 4;    // máximo de hijos por fila (evita que se expandan horizontalmente)
 
 const nodeTypes: NodeTypes = { orgNode: OrgNodeComponent as any };
 
@@ -54,38 +55,47 @@ function computeVisible(roots: string[], expanded: Set<string>, childrenMap: Map
   return vis;
 }
 
-// Layout full para la vista inicial (raíces + hijos directos)
+// Ancho de un subtree: limitado por MAX_COLS para no expandirse infinitamente
 function subtreeW(id: string, vis: Set<string>, cm: Map<string, string[]>): number {
   const ch = (cm.get(id) ?? []).filter((c) => vis.has(c));
-  return ch.length ? ch.reduce((s, c) => s + subtreeW(c, vis, cm), 0) : NODE_W + PAD_X;
+  if (!ch.length) return NODE_W + PAD_X;
+  const cols = Math.min(ch.length, MAX_COLS);
+  return cols * (NODE_W + PAD_X);
 }
 
+// Layout en grid: hijos en filas de MAX_COLS, centrados bajo su padre
 function fullLayout(id: string, x: number, y: number, vis: Set<string>, cm: Map<string, string[]>, pos: Map<string, {x:number;y:number}>) {
   pos.set(id, { x: x - NODE_W / 2, y });
   const ch = (cm.get(id) ?? []).filter((c) => vis.has(c));
   if (!ch.length) return;
-  const total = ch.reduce((s, c) => s + subtreeW(c, vis, cm), 0);
-  let cx = x - total / 2;
-  for (const c of ch) {
-    const w = subtreeW(c, vis, cm);
-    fullLayout(c, cx + w / 2, y + NODE_H + PAD_Y, vis, cm, pos);
-    cx += w;
-  }
+  const cols  = Math.min(ch.length, MAX_COLS);
+  const totalW = cols * (NODE_W + PAD_X) - PAD_X;
+  const startX = x - totalW / 2;
+  ch.forEach((childId, i) => {
+    const col    = i % cols;
+    const row    = Math.floor(i / cols);
+    const childX = startX + col * (NODE_W + PAD_X) + NODE_W / 2;
+    const childY = y + NODE_H + PAD_Y + row * (NODE_H + PAD_Y);
+    fullLayout(childId, childX, childY, vis, cm, pos);
+  });
 }
 
-// Posición in-place para hijos recién expandidos
+// Posición in-place para hijos recién expandidos (también en grid)
 function inPlaceChildPositions(
   parentId: string,
   parentPos: {x:number; y:number},
   childIds: string[],
 ): Map<string, {x:number;y:number}> {
-  const result = new Map<string, {x:number;y:number}>();
-  const total = childIds.length * (NODE_W + PAD_X) - PAD_X;
-  const startX = parentPos.x + (NODE_W - total) / 2;
+  const result  = new Map<string, {x:number;y:number}>();
+  const cols    = Math.min(childIds.length, MAX_COLS);
+  const totalW  = cols * (NODE_W + PAD_X) - PAD_X;
+  const startX  = parentPos.x + (NODE_W - totalW) / 2;
   childIds.forEach((childId, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
     result.set(childId, {
-      x: startX + i * (NODE_W + PAD_X),
-      y: parentPos.y + NODE_H + PAD_Y,
+      x: startX + col * (NODE_W + PAD_X),
+      y: parentPos.y + NODE_H + PAD_Y + row * (NODE_H + PAD_Y),
     });
   });
   return result;
@@ -138,13 +148,32 @@ function ChartInner({ data, showInactive }: { data: OrgData; showInactive: boole
     if (toOpen.size) setExpanded((prev) => new Set([...prev, ...toOpen]));
   }, [search]);
 
+  const collapseSubtree = useCallback((nodeId: string, target: Set<string>) => {
+    target.delete(nodeId);
+    for (const childId of childrenMap.get(nodeId) ?? []) {
+      collapseSubtree(childId, target);
+    }
+  }, [childrenMap]);
+
   const toggleExpand = useCallback((id: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) {
+        // Colapsar este nodo y todos sus descendientes
+        collapseSubtree(id, next);
+      } else {
+        // Colapsar hermanos y sus descendientes (acordeón)
+        const parentId = parentMap.get(id);
+        if (parentId) {
+          for (const sibling of childrenMap.get(parentId) ?? []) {
+            if (sibling !== id) collapseSubtree(sibling, next);
+          }
+        }
+        next.add(id);
+      }
       return next;
     });
-  }, []);
+  }, [childrenMap, parentMap, collapseSubtree]);
 
   const searchMatchIds = useMemo(() => {
     if (!search.trim()) return new Set<string>();
@@ -261,7 +290,7 @@ function ChartInner({ data, showInactive }: { data: OrgData; showInactive: boole
           const d = n.data as OrgNodeData;
           if (d.isSearchMatch) return "#f59e0b";
           if (d.isRoot) return "#00D6BC";
-          const c = ["#00D6BC","#8b5cf6","#3b82f6","#f43f5e","#f59e0b"];
+          const c = ["#00D6BC","#10b981","#06b6d4","#0ea5e9","#34d399"];
           return c[Math.min((d.depth as number) ?? 0, c.length - 1)];
         }}
         maskColor="rgba(241,245,249,0.8)"
@@ -310,7 +339,7 @@ function ChartInner({ data, showInactive }: { data: OrgData; showInactive: boole
 
       {/* Leyenda niveles */}
       <div className="absolute top-3 right-16 z-10 flex gap-1">
-        {(["#00D6BC","#8b5cf6","#3b82f6","#f43f5e"] as const).map((color, i) => (
+        {(["#00D6BC","#10b981","#06b6d4","#0ea5e9"] as const).map((color, i) => (
           <div key={i} className="flex items-center gap-1 bg-white/90 border border-slate-100 rounded-lg px-1.5 py-1 text-[9px] font-bold text-[#64748b] shadow-sm">
             <span className="w-2 h-2 rounded-full" style={{ background: color }} />N{i+1}
           </div>
