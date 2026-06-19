@@ -55,33 +55,33 @@ function OrgNodeInner({ data }: { data: OrgNodeData }) {
     : "border-slate-100 opacity-70";
 
   const depthColors = [
-    "bg-[#00D6BC]/10",
-    "bg-violet-50",
-    "bg-blue-50",
-    "bg-rose-50",
-    "bg-amber-50",
+    "bg-[#00D6BC]/15",
+    "bg-emerald-50",
+    "bg-teal-50",
+    "bg-cyan-50",
+    "bg-sky-50",
   ];
   const headerBg = depthColors[Math.min(depth ?? 0, depthColors.length - 1)];
 
   return (
-    <div className={`relative bg-white rounded-xl shadow border-2 transition-all w-[200px] ${borderColor} ${isSearchMatch ? "scale-105" : ""}`}>
-      <Handle type="target"  position={Position.Top}    className="!bg-[#00D6BC] !w-1.5 !h-1.5 !border-0 !top-0" />
-      <Handle type="source"  position={Position.Bottom} className="!bg-[#00D6BC] !w-1.5 !h-1.5 !border-0 !bottom-0" />
+    <div className={`relative bg-white rounded-2xl shadow-md border-2 transition-all w-[300px] ${borderColor} ${isSearchMatch ? "scale-105" : ""}`}>
+      <Handle type="target"  position={Position.Top}    className="!bg-[#00D6BC] !w-2 !h-2 !border-0 !top-0" />
+      <Handle type="source"  position={Position.Bottom} className="!bg-[#00D6BC] !w-2 !h-2 !border-0 !bottom-0" />
 
       {/* Header con fondo de nivel */}
-      <div className={`${headerBg} rounded-t-xl px-3 pt-3 pb-2`}>
-        <div className="flex items-center gap-2">
-          <Avatar emp={data} size={isRoot ? 40 : 34} />
+      <div className={`${headerBg} rounded-t-2xl px-5 pt-5 pb-4`}>
+        <div className="flex items-center gap-3">
+          <Avatar emp={data} size={isRoot ? 64 : 56} />
           <div className="flex-1 min-w-0">
-            <p className={`font-bold text-[#1e293b] leading-tight truncate ${isRoot ? "text-xs" : "text-[11px]"}`}>
+            <p className={`font-extrabold text-[#1e293b] leading-snug truncate ${isRoot ? "text-base" : "text-[14px]"}`}>
               {nombre_completo}
             </p>
-            {cargo && <p className="text-[9px] text-[#64748b] truncate mt-0.5">{cargo}</p>}
+            {cargo && <p className="text-[12px] font-semibold text-[#64748b] truncate mt-1">{cargo}</p>}
           </div>
-          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${es_activo ? "bg-emerald-400" : "bg-slate-300"}`} />
+          <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${es_activo ? "bg-emerald-400" : "bg-slate-300"}`} />
         </div>
         {equipo && (
-          <span className="mt-1.5 inline-block text-[8px] font-black uppercase tracking-wider text-[#94a3b8] bg-white/70 px-1.5 py-0.5 rounded-full truncate max-w-full">
+          <span className="mt-2 inline-block text-[10px] font-black uppercase tracking-wider text-[#94a3b8] bg-white/70 px-2 py-1 rounded-full truncate max-w-full">
             {equipo}
           </span>
         )}
@@ -91,23 +91,23 @@ function OrgNodeInner({ data }: { data: OrgNodeData }) {
       {hasChildren && (
         <button
           onClick={() => onToggle(id as string)}
-          className={`w-full flex items-center justify-center gap-1 py-1.5 rounded-b-xl text-[10px] font-bold transition-all ${
+          className={`w-full flex items-center justify-center gap-1.5 py-2.5 rounded-b-2xl text-[12px] font-bold transition-all ${
             isExpanded
               ? "bg-[#00D6BC]/10 text-[#00D6BC] hover:bg-[#00D6BC]/20"
               : "bg-slate-50 text-[#64748b] hover:bg-slate-100"
           }`}
         >
           {isExpanded
-            ? <><ChevronDown className="w-3 h-3" /> Colapsar ({childCount})</>
-            : <><ChevronRight className="w-3 h-3" /> {childCount} reporte{childCount !== 1 ? "s" : ""}</>
+            ? <><ChevronDown className="w-3.5 h-3.5" /> Colapsar ({childCount})</>
+            : <><ChevronRight className="w-3.5 h-3.5" /> {childCount} reporte{childCount !== 1 ? "s" : ""}</>
           }
         </button>
       )}
 
       {/* Sin hijos */}
       {!hasChildren && (
-        <div className="py-1.5 text-center rounded-b-xl bg-slate-50">
-          <span className="text-[9px] text-slate-300 font-medium">Sin reportes</span>
+        <div className="py-2.5 text-center rounded-b-2xl bg-slate-50">
+          <span className="text-[11px] text-slate-400 font-medium">Sin reportes</span>
         </div>
       )}
     </div>
