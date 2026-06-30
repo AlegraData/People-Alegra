@@ -29,7 +29,25 @@ export async function GET(_req: Request, { params }: Ctx) {
       orderBy: [{ evaluateeEmail: "asc" }, { evaluationType: "asc" }],
     });
 
-    return NextResponse.json(assignments);
+    // Enrich with avatar_url from user_roles
+    const allEmails = [...new Set([
+      ...assignments.map((a) => a.evaluateeEmail),
+      ...assignments.map((a) => a.evaluatorEmail),
+    ])];
+    const { data: avatarRows } = allEmails.length > 0
+      ? await supabaseAdmin.from("user_roles").select("email, avatar_url").in("email", allEmails)
+      : { data: [] };
+    const avatarMap = new Map(
+      (avatarRows ?? []).map((r: { email: string; avatar_url: string | null }) => [r.email, r.avatar_url ?? null])
+    );
+
+    const enriched = assignments.map((a) => ({
+      ...a,
+      evaluateeAvatarUrl: avatarMap.get(a.evaluateeEmail) ?? null,
+      evaluatorAvatarUrl: avatarMap.get(a.evaluatorEmail) ?? null,
+    }));
+
+    return NextResponse.json(enriched);
   } catch (error) {
     console.error("[GET participants]", error);
     return NextResponse.json({ error: "Error interno" }, { status: 500 });
@@ -56,17 +74,61 @@ export async function POST(request: Request, { params }: Ctx) {
       return NextResponse.json({ error: "Sin participantes" }, { status: 400 });
     }
 
+    // Collect emails that are missing name or team so we can enrich from the directory
+    const needsLookup = new Set<string>();
+    participants.forEach((p) => {
+      if (!p.evaluatorName?.trim()) needsLookup.add(p.evaluatorEmail.trim().toLowerCase());
+      if (!p.evaluateeName?.trim() || !p.team?.trim()) needsLookup.add(p.evaluateeEmail.trim().toLowerCase());
+    });
+
+    type EmpInfo = { name: string | null; team: string | null };
+    const empMap = new Map<string, EmpInfo>();
+
+    if (needsLookup.size > 0) {
+      const emails = [...needsLookup];
+
+      // Primary source: employee directory (has name + team)
+      const { data: empRows } = await supabaseAdmin
+        .from("v_empleados_activos_completa")
+        .select("correo, nombre_completo, equipo")
+        .in("correo", emails);
+      (empRows ?? []).forEach((r: { correo: string; nombre_completo: string | null; equipo: string | null }) => {
+        empMap.set(r.correo, { name: r.nombre_completo || null, team: r.equipo || null });
+      });
+
+      // Fallback: user_roles (has display name, no team)
+      const stillMissing = emails.filter((e) => !empMap.has(e));
+      if (stillMissing.length > 0) {
+        const { data: roleRows } = await supabaseAdmin
+          .from("user_roles")
+          .select("email, full_name")
+          .in("email", stillMissing);
+        (roleRows ?? []).forEach((r: { email: string; full_name: string | null }) => {
+          empMap.set(r.email, { name: r.full_name || null, team: null });
+        });
+      }
+    }
+
+    const resolve = (email: string, field: keyof EmpInfo, provided: string | null | undefined): string | null => {
+      const trimmed = provided?.trim() || null;
+      return trimmed || empMap.get(email)?.[field] || null;
+    };
+
     const created = await prisma.evaluation360Assignment.createMany({
-      data: participants.map((p) => ({
-        evaluationId:   id,
-        evaluatorEmail: p.evaluatorEmail.trim().toLowerCase(),
-        evaluatorName:  p.evaluatorName?.trim() || null,
-        evaluateeEmail: p.evaluateeEmail.trim().toLowerCase(),
-        evaluateeName:  p.evaluateeName?.trim() || null,
-        team:           p.team?.trim() || null,
-        evaluationType: p.evaluationType,
-        status:         "pending",
-      })),
+      data: participants.map((p) => {
+        const evtorEmail = p.evaluatorEmail.trim().toLowerCase();
+        const evalEmail  = p.evaluateeEmail.trim().toLowerCase();
+        return {
+          evaluationId:   id,
+          evaluatorEmail: evtorEmail,
+          evaluatorName:  resolve(evtorEmail, "name", p.evaluatorName),
+          evaluateeEmail: evalEmail,
+          evaluateeName:  resolve(evalEmail,  "name", p.evaluateeName),
+          team:           resolve(evalEmail,  "team", p.team),
+          evaluationType: p.evaluationType,
+          status:         "pending",
+        };
+      }),
       skipDuplicates: true,
     });
 

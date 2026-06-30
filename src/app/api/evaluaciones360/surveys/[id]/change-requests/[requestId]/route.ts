@@ -46,6 +46,14 @@ export async function PATCH(
 
       if (newStatus === "approved") {
         if (cr.action === "add") {
+          // Look up evaluatee team from employee directory
+          const { data: empRow } = await supabaseAdmin
+            .from("v_empleados_activos_completa")
+            .select("equipo")
+            .eq("correo", cr.targetEmail)
+            .maybeSingle();
+          const team = (empRow as { equipo?: string | null } | null)?.equipo ?? null;
+
           // Create new assignment (ignore if already exists)
           await tx.evaluation360Assignment.create({
             data: {
@@ -55,6 +63,7 @@ export async function PATCH(
               evaluateeEmail: cr.targetEmail,
               evaluateeName:  cr.targetName,
               evaluationType: cr.targetType,
+              team,
               status:         "pending",
             },
           }).catch((err: { code?: string }) => {

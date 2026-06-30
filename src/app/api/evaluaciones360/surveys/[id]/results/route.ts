@@ -133,10 +133,22 @@ export async function GET(_req: Request, { params }: Ctx) {
       };
     });
 
+    // Fetch avatars for all evaluatees from user_roles
+    const evaluateeEmails = evaluateeResults.map((r) => r.evaluateeEmail);
+    const { data: avatarRows } = evaluateeEmails.length > 0
+      ? await supabaseAdmin.from("user_roles").select("email, avatar_url").in("email", evaluateeEmails)
+      : { data: [] };
+    const avatarMap = new Map(
+      (avatarRows ?? []).map((r: { email: string; avatar_url: string | null }) => [r.email, r.avatar_url ?? null])
+    );
+
     return NextResponse.json({
       evaluation: { id, title: evaluation.title, status: evaluation.status, typeWeights },
       questionsMap,
-      results: evaluateeResults,
+      results: evaluateeResults.map((r) => ({
+        ...r,
+        avatarUrl: avatarMap.get(r.evaluateeEmail) ?? null,
+      })),
     });
   } catch (error) {
     console.error("[GET results]", error);
