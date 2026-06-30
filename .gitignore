@@ -44,7 +44,9 @@ pnpm-debug.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# ── Miscelánea ────────────────────────────────────────────────────────────────
+# ── Miscelánea 
+notas.txt
+────────────────────────────────────────────────────────────────
 .vercel
 .turbo
 coverage/

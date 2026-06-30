@@ -146,7 +146,7 @@ export default function EvalTaker({ evaluation, onBack, userEmail }: Props) {
     const pct       = total > 0 ? Math.round((submitted / total) * 100) : 0;
 
     return (
-      <div className="max-w-2xl mx-auto space-y-5">
+      <div className="max-w-full space-y-5">
         <div className="flex items-center gap-3">
           <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
             <ArrowLeft className="w-5 h-5" />
@@ -217,7 +217,7 @@ export default function EvalTaker({ evaluation, onBack, userEmail }: Props) {
   // ── INTRO PHASE ───────────────────────────────────────────────────────────
   if (phase === "intro") {
     return (
-      <div className="max-w-2xl mx-auto">
+      <div className="max-w-full">
         <div className="relative bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden">
           <div className="h-2 bg-gradient-to-r from-primary via-[#00b8a3] to-primary/60" />
           <div className="px-10 py-12">
@@ -286,7 +286,7 @@ export default function EvalTaker({ evaluation, onBack, userEmail }: Props) {
   // ── QUESTION PHASE ────────────────────────────────────────────────────────
   if (phase === "question") {
     return (
-      <div className="max-w-2xl mx-auto space-y-5">
+      <div className="max-w-full space-y-5">
         {/* Header card */}
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
           <div className="px-5 pt-5 pb-4 flex items-center gap-4">
@@ -377,7 +377,7 @@ export default function EvalTaker({ evaluation, onBack, userEmail }: Props) {
   // ── REVIEW PHASE ──────────────────────────────────────────────────────────
   if (phase === "review") {
     return (
-      <div className="max-w-2xl mx-auto space-y-4">
+      <div className="max-w-full space-y-4">
         <div className="bg-white rounded-[2rem] p-8 border border-slate-100 shadow-sm">
           <div className="flex items-center gap-4">
             <button onClick={() => transition(() => setPhase("question"))} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
