@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Plus, Users, BarChart2, Pencil, Trash2, Power, PowerOff, CheckCircle2, Clock } from "lucide-react";
+import { Plus, Users, BarChart2, Pencil, Trash2, Power, PowerOff, CheckCircle2, Clock, Inbox } from "lucide-react";
 import type { Evaluation360 } from "@/types/evaluaciones360";
 
 interface Props {
@@ -9,10 +9,11 @@ interface Props {
   onEdit: (e: Evaluation360) => void;
   onParticipants: (e: Evaluation360) => void;
   onResults: (e: Evaluation360) => void;
+  onChangeRequests: (e: Evaluation360) => void;
   onRefresh: () => void;
 }
 
-export default function AdminList({ evaluations, onCreateNew, onEdit, onParticipants, onResults, onRefresh }: Props) {
+export default function AdminList({ evaluations, onCreateNew, onEdit, onParticipants, onResults, onChangeRequests, onRefresh }: Props) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
 
@@ -117,6 +118,19 @@ export default function AdminList({ evaluations, onCreateNew, onEdit, onParticip
                       variant="default"
                     />
                     <ActionBtn
+                      onClick={() => onChangeRequests(e)}
+                      icon={
+                        <span className="relative inline-flex">
+                          <Inbox className="w-4 h-4" />
+                          {(e.pendingChangeRequestsCount ?? 0) > 0 && (
+                            <span className="absolute -top-1 -right-1 w-2 h-2 bg-amber-500 rounded-full" />
+                          )}
+                        </span>
+                      }
+                      label="Solicitudes"
+                      variant="default"
+                    />
+                    <ActionBtn
                       onClick={() => onResults(e)}
                       icon={<BarChart2 className="w-4 h-4" />}
                       label="Resultados"
@@ -148,8 +162,11 @@ export default function AdminList({ evaluations, onCreateNew, onEdit, onParticip
                 {/* Stats row */}
                 <div className="px-5 pb-4 flex items-center gap-4">
                   {[
-                    { label: "Evaluaciones asignadas", value: e.assignmentsCount, icon: <Clock className="w-3 h-3" /> },
-                    { label: "Enviadas", value: e.submittedCount, icon: <CheckCircle2 className="w-3 h-3 text-emerald-500" /> },
+                    { label: "Asignadas",  value: e.assignmentsCount,  icon: <Clock className="w-3 h-3" /> },
+                    { label: "Enviadas",   value: e.submittedCount,    icon: <CheckCircle2 className="w-3 h-3 text-emerald-500" /> },
+                    ...(( e.pendingChangeRequestsCount ?? 0) > 0
+                      ? [{ label: "Solicitudes pendientes", value: e.pendingChangeRequestsCount!, icon: <Inbox className="w-3 h-3 text-amber-500" /> }]
+                      : []),
                   ].map(({ label, value, icon }) => (
                     <div key={label} className="flex items-center gap-1.5 text-xs text-[#64748b]">
                       {icon}

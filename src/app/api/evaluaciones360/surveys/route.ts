@@ -63,6 +63,16 @@ export async function GET() {
       const countMap     = new Map(allCounts.map((c) => [c.evaluationId, c._count._all]));
       const submittedMap = new Map(submittedCounts.map((c) => [c.evaluationId, c._count._all]));
 
+      let pendingCrMap = new Map<string, number>();
+      try {
+        const pendingCrs = await prisma.evaluationChangeRequest.groupBy({
+          by: ["evaluationId"],
+          _count: { _all: true },
+          where: { evaluationId: { in: evalIds }, status: "pending" },
+        });
+        pendingCrMap = new Map(pendingCrs.map((c: { evaluationId: string; _count: { _all: number } }) => [c.evaluationId, c._count._all]));
+      } catch { /* table not yet migrated — safe to ignore */ }
+
       // Also include the current user's own assignments so admins can participate as evaluators
       const myOwnAssignments = evalIds.length
         ? await prisma.evaluation360Assignment.findMany({
@@ -82,9 +92,10 @@ export async function GET() {
       return NextResponse.json(
         evals.map((e) => ({
           ...e,
-          assignmentsCount: countMap.get(e.id) ?? 0,
-          submittedCount:   submittedMap.get(e.id) ?? 0,
-          myAssignments:    (myAssignmentsByEval.get(e.id) ?? []).map((a) => ({
+          assignmentsCount:           countMap.get(e.id) ?? 0,
+          submittedCount:             submittedMap.get(e.id) ?? 0,
+          pendingChangeRequestsCount: pendingCrMap.get(e.id) ?? 0,
+          myAssignments:              (myAssignmentsByEval.get(e.id) ?? []).map((a) => ({
             ...a,
             evaluateeAvatarUrl: adminAvatarMap.get(a.evaluateeEmail) ?? null,
           })),

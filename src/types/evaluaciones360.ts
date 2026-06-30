@@ -1,6 +1,8 @@
 export type EvalType = "ascendente" | "descendente" | "paralela" | "autoevaluacion";
 export type EvalStatus = "active" | "closed";
 export type AssignmentStatus = "pending" | "in_progress" | "completed" | "submitted";
+export type ChangeRequestStatus = "pending" | "approved" | "rejected";
+export type ChangeRequestAction = "add" | "remove";
 export type QuestionType = "text" | "rating" | "boolean" | "choice";
 
 export const EVAL_TYPE_LABELS: Record<EvalType, string> = {
@@ -74,7 +76,26 @@ export interface Evaluation360 {
   updatedAt: string;
   assignmentsCount: number;
   submittedCount: number;
+  pendingChangeRequestsCount?: number;
   myAssignments?: Evaluation360Assignment[];
+}
+
+export interface EvaluationChangeRequest {
+  id:             string;
+  evaluationId:   string;
+  requestorEmail: string;
+  requestorName?: string | null;
+  action:         ChangeRequestAction;
+  targetEmail:    string;
+  targetName?:    string | null;
+  targetType:     EvalType;
+  reason?:        string | null;
+  status:         ChangeRequestStatus;
+  adminNote?:     string | null;
+  reviewedBy?:    string | null;
+  reviewedAt?:    string | null;
+  createdAt:      string;
+  updatedAt:      string;
 }
 
 export interface Evaluation360Assignment {

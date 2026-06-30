@@ -214,6 +214,7 @@ model Evaluation360 {
   updatedAt            DateTime @updatedAt       @map("updated_at")
 
   assignments          Evaluation360Assignment[]
+  changeRequests       EvaluationChangeRequest[]
 
   @@map("evaluations_360")
 }
@@ -238,4 +239,26 @@ model Evaluation360Assignment {
 
   @@unique([evaluationId, evaluatorEmail, evaluateeEmail, evaluationType])
   @@map("evaluation_360_assignments")
+}
+
+model EvaluationChangeRequest {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  evaluationId   String    @map("evaluation_id") @db.Uuid
+  requestorEmail String    @map("requestor_email")
+  requestorName  String?   @map("requestor_name")
+  action         String    // "add" | "remove"
+  targetEmail    String    @map("target_email")
+  targetName     String?   @map("target_name")
+  targetType     String    @map("target_type")
+  reason         String?
+  status         String    @default("pending")
+  adminNote      String?   @map("admin_note")
+  reviewedBy     String?   @map("reviewed_by")
+  reviewedAt     DateTime? @map("reviewed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt       @map("updated_at")
+
+  evaluation     Evaluation360 @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+
+  @@map("evaluation_360_change_requests")
 }

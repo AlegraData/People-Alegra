@@ -3,15 +3,17 @@ import { useState, useEffect, useCallback } from "react";
 import { ChevronLeft, Settings2, UserCheck } from "lucide-react";
 import Link from "next/link";
 import { createClient } from "@/utils/supabase/client";
-import AdminList        from "@/components/evaluaciones360/AdminList";
-import EvalBuilder      from "@/components/evaluaciones360/EvalBuilder";
-import EvalTaker        from "@/components/evaluaciones360/EvalTaker";
-import EvalParticipants from "@/components/evaluaciones360/EvalParticipants";
-import EvalResults      from "@/components/evaluaciones360/EvalResults";
-import ViewerList       from "@/components/evaluaciones360/ViewerList";
+import AdminList           from "@/components/evaluaciones360/AdminList";
+import EvalBuilder         from "@/components/evaluaciones360/EvalBuilder";
+import EvalTaker           from "@/components/evaluaciones360/EvalTaker";
+import EvalParticipants    from "@/components/evaluaciones360/EvalParticipants";
+import EvalResults         from "@/components/evaluaciones360/EvalResults";
+import EvalChangeRequests  from "@/components/evaluaciones360/EvalChangeRequests";
+import EvalRequestModal    from "@/components/evaluaciones360/EvalRequestModal";
+import ViewerList          from "@/components/evaluaciones360/ViewerList";
 import type { Evaluation360, EvalFormData } from "@/types/evaluaciones360";
 
-type View      = "list" | "create" | "edit" | "participants" | "results" | "take";
+type View      = "list" | "create" | "edit" | "participants" | "results" | "take" | "change-requests" | "request";
 type Role      = "admin" | "manager" | "viewer";
 type AdminMode = "manage" | "participate";
 
@@ -182,15 +184,17 @@ export default function Evaluaciones360Page() {
               <AdminList
                 evaluations={evaluations}
                 onCreateNew={() => { setSelected(null); setView("create"); }}
-                onEdit={(e)         => { setSelected(e); setView("edit"); }}
-                onParticipants={(e) => { setSelected(e); setView("participants"); }}
-                onResults={(e)      => { setSelected(e); setView("results"); }}
+                onEdit={(e)             => { setSelected(e); setView("edit"); }}
+                onParticipants={(e)     => { setSelected(e); setView("participants"); }}
+                onResults={(e)          => { setSelected(e); setView("results"); }}
+                onChangeRequests={(e)   => { setSelected(e); setView("change-requests"); }}
                 onRefresh={fetchEvaluations}
               />
             ) : (
               <ViewerList
                 evaluations={role === "viewer" ? evaluations : myEvaluations}
-                onTake={(e) => { setSelected(e); setView("take"); }}
+                onTake={(e)          => { setSelected(e); setView("take"); }}
+                onManageRequest={(e) => { setSelected(e); setView("request"); }}
               />
             )}
           </>
@@ -219,6 +223,19 @@ export default function Evaluaciones360Page() {
         {/* ── TAKE ───────────────────────────────────────────────────────── */}
         {view === "take" && selected && (
           <EvalTaker evaluation={selected} onBack={goToList} userEmail={userEmail} />
+        )}
+
+        {/* ── CHANGE REQUESTS (admin) ─────────────────────────────────────── */}
+        {view === "change-requests" && selected && (
+          <EvalChangeRequests
+            evaluation={selected}
+            onBack={() => { goToList(); fetchEvaluations(); }}
+          />
+        )}
+
+        {/* ── REQUEST MODAL (evaluator) ───────────────────────────────────── */}
+        {view === "request" && selected && (
+          <EvalRequestModal evaluation={selected} onBack={goToList} />
         )}
 
         {/* Saving overlay */}
