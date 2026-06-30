@@ -5,6 +5,38 @@ import { createClient } from "@/utils/supabase/server";
 import { supabaseAdmin } from "@/utils/supabase/admin";
 import { sendSurveyInvitation } from "@/lib/mailer";
 
+/** Builds an email→avatarUrl map for the given emails.
+ *  1st source: user_roles (fast, always checked).
+ *  2nd source: auth.users metadata (fallback for users whose user_roles row
+ *  has no avatar_url — e.g. they logged in before the column was added). */
+async function buildAvatarMap(emails: string[]): Promise<Map<string, string | null>> {
+  if (emails.length === 0) return new Map();
+
+  const { data: roleRows } = await supabaseAdmin
+    .from("user_roles")
+    .select("email, avatar_url")
+    .in("email", emails);
+
+  const map = new Map<string, string | null>(
+    (roleRows ?? []).map((u: { email: string; avatar_url: string | null }) => [u.email, u.avatar_url])
+  );
+
+  const missing = emails.filter((e) => !map.get(e));
+  if (missing.length > 0) {
+    try {
+      const { data: authData } = await supabaseAdmin.auth.admin.listUsers({ perPage: 1000 });
+      (authData?.users ?? []).forEach((u) => {
+        if (u.email && missing.includes(u.email)) {
+          const url = (u.user_metadata?.avatar_url as string | null) ?? null;
+          if (url) map.set(u.email, url);
+        }
+      });
+    } catch (err) { console.error("[buildAvatarMap] auth.admin.listUsers failed:", err); }
+  }
+
+  return map;
+}
+
 export async function GET() {
   try {
     const supabase = await createClient();
@@ -38,6 +70,10 @@ export async function GET() {
           })
         : [];
 
+      // Attach evaluatee avatars to admin's own assignments
+      const adminEvaluateeEmails = [...new Set(myOwnAssignments.map((a) => a.evaluateeEmail))];
+      const adminAvatarMap = await buildAvatarMap(adminEvaluateeEmails);
+
       const myAssignmentsByEval = new Map<string, typeof myOwnAssignments>();
       myOwnAssignments.forEach((a) => {
         myAssignmentsByEval.set(a.evaluationId, [...(myAssignmentsByEval.get(a.evaluationId) ?? []), a]);
@@ -48,7 +84,10 @@ export async function GET() {
           ...e,
           assignmentsCount: countMap.get(e.id) ?? 0,
           submittedCount:   submittedMap.get(e.id) ?? 0,
-          myAssignments:    myAssignmentsByEval.get(e.id) ?? [],
+          myAssignments:    (myAssignmentsByEval.get(e.id) ?? []).map((a) => ({
+            ...a,
+            evaluateeAvatarUrl: adminAvatarMap.get(a.evaluateeEmail) ?? null,
+          })),
         }))
       );
     }
@@ -71,29 +110,9 @@ export async function GET() {
       where: { evaluationId: { in: myEvalIds }, evaluatorEmail: user.email! },
     });
 
-    // Obtener avatares de los evaluados desde user_roles
+    // Obtener avatares de los evaluados (user_roles + fallback auth.users)
     const evaluateeEmails = [...new Set(userAssignments.map((a) => a.evaluateeEmail))];
-    const { data: avatarRows } = await supabaseAdmin
-      .from("user_roles")
-      .select("email, avatar_url")
-      .in("email", evaluateeEmails);
-    const avatarMap = new Map<string, string | null>(
-      (avatarRows ?? []).map((u: { email: string; avatar_url: string | null }) => [u.email, u.avatar_url])
-    );
-
-    // Fallback: buscar en auth.users para correos sin avatar en user_roles
-    const emailsMissingAvatar = evaluateeEmails.filter((e) => !avatarMap.get(e));
-    if (emailsMissingAvatar.length > 0) {
-      try {
-        const { data: authData } = await supabaseAdmin.auth.admin.listUsers({ perPage: 1000 });
-        (authData?.users ?? []).forEach((u) => {
-          if (u.email && emailsMissingAvatar.includes(u.email)) {
-            const authAvatar = (u.user_metadata?.avatar_url as string | null) ?? null;
-            if (authAvatar) avatarMap.set(u.email, authAvatar);
-          }
-        });
-      } catch { /* silent — avatars are optional */ }
-    }
+    const avatarMap = await buildAvatarMap(evaluateeEmails);
 
     const assignmentsByEval = new Map<string, typeof userAssignments>();
     userAssignments.forEach((a) => {

@@ -1,8 +1,40 @@
 "use client";
+import { useState } from "react";
 import { CheckCircle2, Clock, ChevronRight, Users } from "lucide-react";
 import type { Evaluation360 } from "@/types/evaluaciones360";
 import { EVAL_TYPE_LABELS, EVAL_TYPE_COLORS } from "@/types/evaluaciones360";
 import type { EvalType } from "@/types/evaluaciones360";
+
+const AVATAR_COLORS = [
+  "bg-blue-500", "bg-violet-500", "bg-amber-500", "bg-emerald-500",
+  "bg-rose-500", "bg-indigo-500", "bg-teal-500", "bg-orange-500",
+];
+function getAvatarColor(s: string) {
+  const hash = s.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
+  return AVATAR_COLORS[hash % AVATAR_COLORS.length];
+}
+function getInitials(s: string) {
+  if (!s?.trim()) return "?";
+  const parts = s.trim().split(/[\s@._-]+/);
+  if (parts.length >= 2 && parts[0] && parts[1]) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return s.trim().slice(0, 2).toUpperCase() || "?";
+}
+function AvatarCircle({ avatarUrl, name }: { avatarUrl?: string | null; name: string }) {
+  const [err, setErr] = useState(false);
+  const color    = getAvatarColor(name);
+  const initials = getInitials(name);
+  if (avatarUrl && !err) {
+    return (
+      <img src={avatarUrl} alt={name} onError={() => setErr(true)}
+        className="w-11 h-11 rounded-2xl object-cover shrink-0" />
+    );
+  }
+  return (
+    <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${color}`}>
+      <span className="text-xs font-black text-white">{initials}</span>
+    </div>
+  );
+}
 
 interface Props {
   evaluations: Evaluation360[];
@@ -114,14 +146,20 @@ export default function ViewerList({ evaluations, onTake }: Props) {
                     const statusLabel = { pending: "Pendiente", in_progress: "En progreso", completed: "Completada", submitted: "Enviada" }[a.status] ?? a.status;
 
                     return (
-                      <div key={a.id} className="flex items-center justify-between gap-2 py-1.5 px-3 rounded-xl bg-slate-50 hover:bg-slate-100 transition-colors">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className={`text-[10px] font-black uppercase px-1.5 py-0.5 rounded-full ${EVAL_TYPE_COLORS[a.evaluationType]}`}>
-                            {EVAL_TYPE_LABELS[a.evaluationType]}
-                          </span>
-                          <span className="text-sm font-semibold text-[#1e293b] truncate">
-                            {a.evaluateeName || a.evaluateeEmail}
-                          </span>
+                      <div key={a.id} className="flex items-center justify-between gap-3 py-2.5 px-3 rounded-xl bg-slate-50 hover:bg-slate-100 transition-colors">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <AvatarCircle
+                            avatarUrl={a.evaluateeAvatarUrl}
+                            name={a.evaluateeName || a.evaluateeEmail}
+                          />
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-[#1e293b] truncate leading-tight">
+                              {a.evaluateeName || a.evaluateeEmail}
+                            </p>
+                            <span className={`inline-block mt-0.5 text-[10px] font-black uppercase px-1.5 py-0.5 rounded-full ${EVAL_TYPE_COLORS[a.evaluationType]}`}>
+                              {EVAL_TYPE_LABELS[a.evaluationType]}
+                            </span>
+                          </div>
                         </div>
                         <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full shrink-0 ${statusStyle}`}>
                           {statusLabel}

@@ -287,30 +287,40 @@ export default function EvalTaker({ evaluation, onBack, userEmail }: Props) {
   if (phase === "question") {
     return (
       <div className="max-w-2xl mx-auto space-y-5">
-        {/* Header */}
-        <div className="flex items-center gap-3">
-          <button onClick={() => setPhase("intro")} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-[#64748b]">
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold text-[#1e293b] truncate">{selectedAssignment!.evaluateeName || selectedAssignment!.evaluateeEmail}</p>
-            <div className="flex items-center gap-2">
-              <p className="text-xs text-[#64748b]">Pregunta {currentIndex + 1} de {questions.length}</p>
-              {saveStatus === "saving" && <span className="text-[10px] text-[#94a3b8]">Guardando...</span>}
-              {saveStatus === "saved"  && <span className="text-[10px] text-emerald-500 font-bold">✓ Guardado</span>}
-              {saveStatus === "error"  && <span className="text-[10px] text-red-500 font-bold">Error al guardar</span>}
+        {/* Header card */}
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+          <div className="px-5 pt-5 pb-4 flex items-center gap-4">
+            <button
+              onClick={() => setPhase("intro")}
+              className="p-2 hover:bg-slate-100 rounded-full transition-colors text-[#64748b] shrink-0"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <AvatarCircle
+              avatarUrl={selectedAssignment!.evaluateeAvatarUrl}
+              name={selectedAssignment!.evaluateeName || selectedAssignment!.evaluateeEmail}
+              size="lg"
+            />
+            <div className="flex-1 min-w-0">
+              <p className="text-base font-extrabold text-[#1e293b] truncate leading-tight">
+                {selectedAssignment!.evaluateeName || selectedAssignment!.evaluateeEmail}
+              </p>
+              <div className="flex items-center gap-2 mt-0.5">
+                <TypeBadge type={selectedAssignment!.evaluationType} />
+                <span className="text-xs text-[#94a3b8]">·</span>
+                <span className="text-xs text-[#64748b]">Pregunta {currentIndex + 1} de {questions.length}</span>
+                {saveStatus === "saving" && <span className="text-[10px] text-[#94a3b8]">Guardando...</span>}
+                {saveStatus === "saved"  && <span className="text-[10px] text-emerald-500 font-bold">✓ Guardado</span>}
+                {saveStatus === "error"  && <span className="text-[10px] text-red-500 font-bold">Error al guardar</span>}
+              </div>
+            </div>
+            <div className="shrink-0 text-right">
+              <span className="text-lg font-black text-primary">{Math.round(progress)}%</span>
             </div>
           </div>
-        </div>
-
-        {/* Progress bar */}
-        <div className="space-y-1.5">
-          <div className="flex justify-between">
-            <span className="text-xs font-semibold text-[#64748b]">{currentIndex + 1} / {questions.length} preguntas</span>
-            <span className="text-xs font-bold text-primary">{Math.round(progress)}%</span>
-          </div>
-          <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-            <div className="h-full bg-primary rounded-full transition-all duration-500" style={{ width: `${progress}%` }} />
+          {/* Progress bar at the bottom of the card */}
+          <div className="h-1.5 bg-slate-100">
+            <div className="h-full bg-primary transition-all duration-500" style={{ width: `${progress}%` }} />
           </div>
         </div>
 
@@ -373,6 +383,11 @@ export default function EvalTaker({ evaluation, onBack, userEmail }: Props) {
             <button onClick={() => transition(() => setPhase("question"))} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
               <ArrowLeft className="w-5 h-5" />
             </button>
+            <AvatarCircle
+              avatarUrl={selectedAssignment!.evaluateeAvatarUrl}
+              name={selectedAssignment!.evaluateeName || selectedAssignment!.evaluateeEmail}
+              size="md"
+            />
             <div>
               <h3 className="text-xl font-bold text-[#1e293b]">Revisa tus respuestas</h3>
               <p className="text-sm text-[#64748b]">Para {selectedAssignment!.evaluateeName || selectedAssignment!.evaluateeEmail}</p>
@@ -522,31 +537,39 @@ function getAvatarColor(str: string) {
 }
 
 function getInitials(nameOrEmail: string) {
+  if (!nameOrEmail?.trim()) return "?";
   const parts = nameOrEmail.trim().split(/[\s@._-]+/);
   if (parts.length >= 2 && parts[0] && parts[1]) {
     return (parts[0][0] + parts[1][0]).toUpperCase();
   }
-  return nameOrEmail.slice(0, 2).toUpperCase();
+  return nameOrEmail.trim().slice(0, 2).toUpperCase() || "?";
 }
 
-function AvatarCircle({ avatarUrl, name }: { avatarUrl?: string | null; name: string }) {
+const AVATAR_SIZES = {
+  sm: { wrap: "w-10 h-10 rounded-xl",   text: "text-xs" },
+  md: { wrap: "w-12 h-12 rounded-2xl",  text: "text-sm" },
+  lg: { wrap: "w-14 h-14 rounded-2xl",  text: "text-base" },
+};
+
+function AvatarCircle({ avatarUrl, name, size = "sm" }: { avatarUrl?: string | null; name: string; size?: keyof typeof AVATAR_SIZES }) {
   const [imgError, setImgError] = useState(false);
   const color    = getAvatarColor(name);
   const initials = getInitials(name);
+  const sz       = AVATAR_SIZES[size];
 
   if (avatarUrl && !imgError) {
     return (
       <img
         src={avatarUrl}
         alt={name}
-        className="w-10 h-10 rounded-xl object-cover shrink-0"
+        className={`${sz.wrap} object-cover shrink-0`}
         onError={() => setImgError(true)}
       />
     );
   }
   return (
-    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${color}`}>
-      <span className="text-xs font-black text-white">{initials}</span>
+    <div className={`${sz.wrap} flex items-center justify-center shrink-0 ${color}`}>
+      <span className={`${sz.text} font-black text-white`}>{initials}</span>
     </div>
   );
 }
