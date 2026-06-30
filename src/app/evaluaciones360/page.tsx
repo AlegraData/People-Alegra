@@ -13,7 +13,7 @@ import EvalRequestModal    from "@/components/evaluaciones360/EvalRequestModal";
 import ViewerList          from "@/components/evaluaciones360/ViewerList";
 import type { Evaluation360, EvalFormData } from "@/types/evaluaciones360";
 
-type View      = "list" | "create" | "edit" | "participants" | "results" | "take" | "change-requests" | "request";
+type View      = "list" | "create" | "edit" | "duplicate" | "participants" | "results" | "take" | "change-requests" | "request";
 type Role      = "admin" | "manager" | "viewer";
 type AdminMode = "manage" | "participate";
 
@@ -57,17 +57,22 @@ export default function Evaluaciones360Page() {
   // ── Navigate helpers ──────────────────────────────────────────────────────
   const goToList = useCallback(() => { setView("list"); setSelected(null); }, []);
 
+  const handleDuplicate = useCallback((e: Evaluation360) => {
+    setSelected(e);
+    setView("duplicate");
+  }, []);
+
   const handleAdminModeChange = (mode: AdminMode) => {
     setAdminMode(mode);
     goToList();
   };
 
-  // ── Create / Edit ─────────────────────────────────────────────────────────
-  const handleSave = async (data: EvalFormData) => {
+  // ── Create / Edit / Duplicate ─────────────────────────────────────────────
+  const handleSave = async (data: EvalFormData): Promise<string | null> => {
     setSaving(true);
     setError(null);
     try {
-      const isEdit = !!selected;
+      const isEdit = !!selected && view === "edit";
       const url    = isEdit ? `/api/evaluaciones360/surveys/${selected!.id}` : "/api/evaluaciones360/surveys";
       const method = isEdit ? "PATCH" : "POST";
 
@@ -80,11 +85,19 @@ export default function Evaluaciones360Page() {
       if (!res.ok) {
         const d = await res.json();
         setError(d.error || "Error al guardar.");
-        return;
+        return null;
       }
+
+      const result = await res.json();
       await fetchEvaluations();
-      goToList();
-    } catch { setError("Error de red."); }
+
+      if (isEdit) {
+        goToList();
+        return null;
+      }
+      // Create / duplicate: return ID so EvalBuilder can drive the send flow
+      return (result as { id: string }).id ?? null;
+    } catch { setError("Error de red."); return null; }
     finally { setSaving(false); }
   };
 
@@ -185,6 +198,7 @@ export default function Evaluaciones360Page() {
                 evaluations={evaluations}
                 onCreateNew={() => { setSelected(null); setView("create"); }}
                 onEdit={(e)             => { setSelected(e); setView("edit"); }}
+                onDuplicate={handleDuplicate}
                 onParticipants={(e)     => { setSelected(e); setView("participants"); }}
                 onResults={(e)          => { setSelected(e); setView("results"); }}
                 onChangeRequests={(e)   => { setSelected(e); setView("change-requests"); }}
@@ -208,6 +222,11 @@ export default function Evaluaciones360Page() {
         {/* ── EDIT ───────────────────────────────────────────────────────── */}
         {view === "edit" && selected && (
           <EvalBuilder initialData={selected} onSave={handleSave} onCancel={goToList} />
+        )}
+
+        {/* ── DUPLICATE ──────────────────────────────────────────────────── */}
+        {view === "duplicate" && selected && (
+          <EvalBuilder initialData={selected} isDuplicate onSave={handleSave} onCancel={goToList} />
         )}
 
         {/* ── PARTICIPANTS ────────────────────────────────────────────────── */}

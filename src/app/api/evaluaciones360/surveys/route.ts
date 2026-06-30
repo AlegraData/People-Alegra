@@ -167,6 +167,7 @@ export async function POST(request: Request) {
       weightAscendente, weightDescendente, weightParalela, weightAutoevaluacion,
       questions, participants,
       emailSubject, emailBody, emailButtonText, emailFooter,
+      skipInvitations,
     } = body;
 
     if (!title?.trim()) return NextResponse.json({ error: "El título es requerido" }, { status: 400 });
@@ -213,14 +214,16 @@ export async function POST(request: Request) {
       skipDuplicates: true,
     });
 
-    sendInvitationsToAll(evaluation.id, {
-      title:          evaluation.title,
-      description:    evaluation.description ?? "",
-      emailSubject:   evaluation.emailSubject,
-      emailBody:      evaluation.emailBody,
-      emailButtonText: evaluation.emailButtonText,
-      emailFooter:    evaluation.emailFooter,
-    }).catch((err) => console.error("[auto-invite 360]", err));
+    if (!skipInvitations) {
+      sendInvitationsToAll(evaluation.id, {
+        title:          evaluation.title,
+        description:    evaluation.description ?? "",
+        emailSubject:   evaluation.emailSubject,
+        emailBody:      evaluation.emailBody,
+        emailButtonText: evaluation.emailButtonText,
+        emailFooter:    evaluation.emailFooter,
+      }).catch((err) => console.error("[auto-invite 360]", err));
+    }
 
     return NextResponse.json({ ...evaluation, assignmentsCount: participants.length, submittedCount: 0 }, { status: 201 });
   } catch (error) {

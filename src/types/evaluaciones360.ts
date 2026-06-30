@@ -143,4 +143,5 @@ export interface EvalFormData {
   emailBody: string;
   emailButtonText: string;
   emailFooter: string;
+  skipInvitations?: boolean;
 }

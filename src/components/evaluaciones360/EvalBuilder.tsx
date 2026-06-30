@@ -1,7 +1,8 @@
 "use client";
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import {
   ArrowLeft, Copy, Trash2, CheckCircle2, AlertTriangle, X, Plus, Mail, Upload, Download,
+  Send, Loader2,
 } from "lucide-react";
 import EmployeeSearchCombobox, { type EmployeeResult } from "@/components/evaluaciones360/EmployeeSearchCombobox";
 import * as XLSX from "xlsx";
@@ -15,10 +16,13 @@ import type { EmailTemplateConfig } from "@/types/clima";
 type Step = 1 | 2 | 3;
 type QuestionType = Eval360Question["type"];
 
+type SendStatus = "pending" | "sending" | "sent" | "error";
+
 interface Props {
-  onSave: (data: EvalFormData) => void;
+  onSave: (data: EvalFormData) => Promise<string | null>;
   onCancel: () => void;
   initialData?: Evaluation360;
+  isDuplicate?: boolean;
 }
 
 const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
@@ -30,12 +34,12 @@ const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
 
 const ALL_TYPES: EvalType[] = ["ascendente", "descendente", "paralela", "autoevaluacion"];
 
-export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
-  const isEditMode = !!initialData;
+export default function EvalBuilder({ onSave, onCancel, initialData, isDuplicate }: Props) {
+  const isEditMode = !!initialData && !isDuplicate;
 
   // ── Step 1 state ──────────────────────────────────────────────────────────
   const [step, setStep]               = useState<Step>(1);
-  const [title, setTitle]             = useState(initialData?.title ?? "");
+  const [title, setTitle]             = useState(isDuplicate && initialData?.title ? `Copia de ${initialData.title}` : (initialData?.title ?? ""));
   const [description, setDescription] = useState(initialData?.description ?? "");
   const [instructions, setInstructions] = useState(initialData?.instructions ?? "");
 
@@ -51,10 +55,10 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
 
   const [emailExpanded, setEmailExpanded] = useState(false);
   const [emailTemplate, setEmailTemplate] = useState<EmailTemplateConfig>({
-    subject:    initialData?.emailSubject    ?? null,
-    body:       initialData?.emailBody       ?? null,
-    buttonText: initialData?.emailButtonText ?? null,
-    footer:     initialData?.emailFooter     ?? null,
+    subject:    isDuplicate ? null : (initialData?.emailSubject    ?? null),
+    body:       isDuplicate ? null : (initialData?.emailBody       ?? null),
+    buttonText: isDuplicate ? null : (initialData?.emailButtonText ?? null),
+    footer:     isDuplicate ? null : (initialData?.emailFooter     ?? null),
   });
 
   // ── Step 2 state ──────────────────────────────────────────────────────────
@@ -68,6 +72,16 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
   const [participants, setParticipants] = useState<ParticipantRow[]>([]);
   const participantsFileRef = useRef<HTMLInputElement>(null);
 
+  // ── Send-flow state ───────────────────────────────────────────────────────
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [sendPhase,   setSendPhase]   = useState<"idle" | "sending" | "done">("idle");
+  const [createdId,   setCreatedId]   = useState<string | null>(null);
+  const [sendStatus,  setSendStatus]  = useState<Record<string, SendStatus>>({});
+
+  // ── Name-enrichment state ─────────────────────────────────────────────────
+  const [enriching,         setEnriching]         = useState(false);
+  const [unresolvedEmails,  setUnresolvedEmails]   = useState(new Set<string>());
+
   // ── Derived ───────────────────────────────────────────────────────────────
   const enabledTypes: EvalType[] = ALL_TYPES.filter((t) => ({
     ascendente:     hasAscendente,
@@ -79,6 +93,12 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
   const effectiveTab: EvalType = enabledTypes.includes(activeTab) ? activeTab : (enabledTypes[0] ?? "ascendente");
   const tabQuestions = questions[effectiveTab] ?? [];
   const totalQuestionWeight = tabQuestions.reduce((s, q) => s + (q.weight ?? 0), 0);
+
+  const uniqueEvaluators = useMemo(() => {
+    const map = new Map<string, string>();
+    participants.forEach((p) => map.set(p.evaluatorEmail.toLowerCase(), p.evaluatorName || p.evaluatorEmail));
+    return Array.from(map.entries()).map(([email, name]) => ({ email, name }));
+  }, [participants]);
 
   const totalTypeWeight = [
     hasAscendente     ? weightAscendente     : 0,
@@ -192,6 +212,48 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
   };
 
   // ── Excel import — participants ───────────────────────────────────────────
+  const enrichAndAddRows = async (imported: ParticipantRow[]) => {
+    const needsName = new Set<string>();
+    imported.forEach((r) => {
+      if (!r.evaluatorName) needsName.add(r.evaluatorEmail);
+      if (!r.evaluateeName) needsName.add(r.evaluateeEmail);
+    });
+
+    if (needsName.size === 0) {
+      setParticipants((prev) => [...prev, ...imported]);
+      return;
+    }
+
+    setEnriching(true);
+    try {
+      const res = await fetch("/api/evaluaciones360/resolve-names", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emails: [...needsName] }),
+      });
+      const { names }: { names: Record<string, string> } = res.ok ? await res.json() : { names: {} };
+
+      const enriched = imported.map((r) => ({
+        ...r,
+        evaluatorName: r.evaluatorName || names[r.evaluatorEmail] || "",
+        evaluateeName: r.evaluateeName || names[r.evaluateeEmail] || "",
+      }));
+
+      const unresolved = new Set<string>();
+      enriched.forEach((r) => {
+        if (!r.evaluatorName) unresolved.add(r.evaluatorEmail);
+        if (!r.evaluateeName) unresolved.add(r.evaluateeEmail);
+      });
+
+      setParticipants((prev) => [...prev, ...enriched]);
+      setUnresolvedEmails((prev) => new Set([...prev, ...unresolved]));
+    } catch {
+      setParticipants((prev) => [...prev, ...imported]);
+    } finally {
+      setEnriching(false);
+    }
+  };
+
   const handleParticipantsExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -217,7 +279,7 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
             evaluationType: typeMap[(r["Tipo"] || r["tipo"] || "").toString().trim().toLowerCase()] ?? "paralela",
           }))
           .filter((r) => r.evaluatorEmail && r.evaluateeEmail);
-        setParticipants((prev) => [...prev, ...imported]);
+        enrichAndAddRows(imported);
       } catch { alert("Error al leer el archivo de participantes."); }
     };
     reader.readAsBinaryString(file);
@@ -277,6 +339,18 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
     setStep(next);
   };
 
+  const buildFormData = (): EvalFormData => ({
+    title, description, instructions,
+    hasAscendente, hasDescendente, hasParalela, hasAutoevaluacion,
+    weightAscendente, weightDescendente, weightParalela, weightAutoevaluacion,
+    questions, participants,
+    emailSubject:    emailTemplate.subject?.trim()    ?? "",
+    emailBody:       emailTemplate.body?.trim()       ?? "",
+    emailButtonText: emailTemplate.buttonText?.trim() ?? "",
+    emailFooter:     emailTemplate.footer?.trim()     ?? "",
+    skipInvitations: true,
+  });
+
   const handleConfirm = () => {
     for (const type of enabledTypes) {
       const qs = questions[type] ?? [];
@@ -291,16 +365,49 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
       }
     }
     if (!isEditMode && participants.length === 0) { alert("Agrega al menos un participante."); return; }
-    onSave({
-      title, description, instructions,
-      hasAscendente, hasDescendente, hasParalela, hasAutoevaluacion,
-      weightAscendente, weightDescendente, weightParalela, weightAutoevaluacion,
-      questions, participants,
-      emailSubject:    emailTemplate.subject?.trim()    ?? "",
-      emailBody:       emailTemplate.body?.trim()       ?? "",
-      emailButtonText: emailTemplate.buttonText?.trim() ?? "",
-      emailFooter:     emailTemplate.footer?.trim()     ?? "",
-    });
+
+    if (!isEditMode) {
+      setPreviewOpen(true);
+      return;
+    }
+    onSave(buildFormData());
+  };
+
+  const runSendLoop = async (evalId: string) => {
+    const initial: Record<string, SendStatus> = {};
+    uniqueEvaluators.forEach((e) => { initial[e.email] = "pending"; });
+    setSendStatus(initial);
+    setSendPhase("sending");
+
+    for (const { email, name } of uniqueEvaluators) {
+      setSendStatus((prev) => ({ ...prev, [email]: "sending" }));
+      try {
+        const res = await fetch(`/api/evaluaciones360/surveys/${evalId}/invite`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, name }),
+        });
+        setSendStatus((prev) => ({ ...prev, [email]: res.ok ? "sent" : "error" }));
+      } catch {
+        setSendStatus((prev) => ({ ...prev, [email]: "error" }));
+      }
+      await new Promise((r) => setTimeout(r, 700));
+    }
+    setSendPhase("done");
+  };
+
+  const handleCreateOnly = async () => {
+    setPreviewOpen(false);
+    await onSave(buildFormData());
+    onCancel();
+  };
+
+  const handleCreateAndSend = async () => {
+    setPreviewOpen(false);
+    const id = await onSave(buildFormData());
+    if (!id) return;
+    setCreatedId(id);
+    await runSendLoop(id);
   };
 
   const STEPS = isEditMode
@@ -351,7 +458,7 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
               <ArrowLeft className="w-5 h-5" />
             </button>
             <div>
-              <h3 className="text-xl font-bold">{isEditMode ? "Editar Evaluación" : "Nueva Evaluación 360°"}</h3>
+              <h3 className="text-xl font-bold">{isEditMode ? "Editar Evaluación" : isDuplicate ? "Duplicar Evaluación 360°" : "Nueva Evaluación 360°"}</h3>
               <p className="text-sm text-[#64748b]">Información general y configuración</p>
             </div>
           </div>
@@ -718,9 +825,33 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
           ) : (
             <div>
               <div className="flex items-center justify-between mb-3">
-                <p className="text-sm font-bold text-[#1e293b]">{participants.length} participante{participants.length !== 1 ? "s" : ""}</p>
-                <button onClick={() => setParticipants([])} className="text-xs font-bold text-red-500 hover:text-red-600">Limpiar todo</button>
+                <div className="flex items-center gap-3">
+                  <p className="text-sm font-bold text-[#1e293b]">{participants.length} encuesta{participants.length !== 1 ? "s" : ""}</p>
+                  <span className="text-slate-300">·</span>
+                  <p className="text-sm text-[#64748b]">
+                    <span className="font-bold text-[#1e293b]">{new Set(participants.map(p => p.evaluatorEmail.toLowerCase())).size}</span>
+                    {" "}participante{new Set(participants.map(p => p.evaluatorEmail.toLowerCase())).size !== 1 ? "s" : ""} únicos
+                  </p>
+                  {enriching && (
+                    <span className="flex items-center gap-1 text-xs text-primary font-semibold">
+                      <Loader2 className="w-3 h-3 animate-spin" /> Buscando nombres...
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => { setParticipants([]); setUnresolvedEmails(new Set()); }}
+                  className="text-xs font-bold text-red-500 hover:text-red-600"
+                >
+                  Limpiar todo
+                </button>
               </div>
+
+              {unresolvedEmails.size > 0 && !enriching && (
+                <div className="flex items-center gap-2 px-3 py-2.5 bg-yellow-50 border border-yellow-200 rounded-xl text-xs text-yellow-800 font-semibold mb-3">
+                  <AlertTriangle className="w-4 h-4 text-yellow-500 shrink-0" />
+                  {unresolvedEmails.size} correo{unresolvedEmails.size !== 1 ? "s" : ""} sin nombre en el directorio — las filas amarillas se identifican con email
+                </div>
+              )}
               <div className="overflow-x-auto rounded-xl border border-slate-100">
                 <table className="w-full text-xs">
                   <thead>
@@ -731,14 +862,24 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {participants.map((p, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                    {participants.map((p, idx) => {
+                      const evtorUnresolved = !p.evaluatorName && unresolvedEmails.has(p.evaluatorEmail);
+                      const evaleeUnresolved = !p.evaluateeName && unresolvedEmails.has(p.evaluateeEmail);
+                      const rowUnresolved = evtorUnresolved || evaleeUnresolved;
+                      return (
+                      <tr key={idx} className={`transition-colors ${rowUnresolved ? "bg-yellow-50 hover:bg-yellow-100" : "hover:bg-slate-50"}`}>
                         <td className="px-4 py-2.5">
-                          <p className="font-semibold text-[#1e293b]">{p.evaluatorName || p.evaluatorEmail}</p>
+                          {evtorUnresolved
+                            ? <p className="font-semibold text-yellow-700 flex items-center gap-1"><AlertTriangle className="w-3 h-3 shrink-0" />{p.evaluatorEmail}</p>
+                            : <p className="font-semibold text-[#1e293b]">{p.evaluatorName || p.evaluatorEmail}</p>
+                          }
                           <p className="text-[#94a3b8]">{p.evaluatorEmail}</p>
                         </td>
                         <td className="px-4 py-2.5">
-                          <p className="font-semibold text-[#1e293b]">{p.evaluateeName || p.evaluateeEmail}</p>
+                          {evaleeUnresolved
+                            ? <p className="font-semibold text-yellow-700 flex items-center gap-1"><AlertTriangle className="w-3 h-3 shrink-0" />{p.evaluateeEmail}</p>
+                            : <p className="font-semibold text-[#1e293b]">{p.evaluateeName || p.evaluateeEmail}</p>
+                          }
                           <p className="text-[#94a3b8]">{p.evaluateeEmail}</p>
                         </td>
                         <td className="px-4 py-2.5 text-[#64748b]">{p.team || "—"}</td>
@@ -751,7 +892,8 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
                           </button>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -763,6 +905,159 @@ export default function EvalBuilder({ onSave, onCancel, initialData }: Props) {
             <button onClick={handleConfirm} className="bg-primary text-white px-8 py-3 rounded-xl font-bold hover:shadow-lg hover:shadow-primary/20 transition-all">
               Crear Evaluación
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ─── PREVIEW MODAL ──────────────────────────────────────────────────── */}
+      {previewOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-white rounded-[2rem] w-full max-w-xl shadow-2xl flex flex-col max-h-[92vh]">
+            {/* Header */}
+            <div className="p-6 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-primary/10 rounded-2xl flex items-center justify-center shrink-0">
+                  <Mail className="w-5 h-5 text-primary" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-[#1e293b]">Confirmar envío de invitaciones</h3>
+                  <p className="text-xs text-[#64748b]">Revisa y edita el correo antes de enviarlo</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-5">
+
+              {/* Email editor */}
+              <EmailTemplateEditor
+                value={emailTemplate}
+                onChange={setEmailTemplate}
+                surveyTitle={title}
+                surveyDescription={description}
+              />
+
+              {/* Evaluators */}
+              <div className="border border-slate-100 rounded-2xl p-4">
+                <p className="text-[10px] font-black uppercase tracking-widest text-[#94a3b8] mb-3">
+                  {uniqueEvaluators.length} evaluador{uniqueEvaluators.length !== 1 ? "es" : ""} recibirán la invitación
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {uniqueEvaluators.map(({ email, name }) => (
+                    <div key={email} className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-full pl-1 pr-3 py-1 text-xs">
+                      <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary shrink-0">
+                        {(name || email)[0].toUpperCase()}
+                      </div>
+                      <span className="font-medium text-[#1e293b] truncate max-w-[120px]" title={email}>
+                        {name || email}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="p-6 border-t border-slate-100 flex gap-3">
+              <button
+                onClick={() => setPreviewOpen(false)}
+                className="px-4 py-3 rounded-xl border border-slate-200 text-sm font-bold text-[#64748b] hover:bg-slate-50 transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleCreateOnly}
+                className="flex-1 px-4 py-3 rounded-xl bg-slate-100 text-sm font-bold text-[#1e293b] hover:bg-slate-200 transition-all"
+              >
+                Crear sin enviar
+              </button>
+              <button
+                onClick={handleCreateAndSend}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-primary text-white text-sm font-bold hover:shadow-lg hover:shadow-primary/20 transition-all"
+              >
+                <Send className="w-4 h-4" />
+                Enviar ({uniqueEvaluators.length})
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── SENDING PROGRESS OVERLAY ───────────────────────────────────────── */}
+      {(sendPhase === "sending" || sendPhase === "done") && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-white rounded-[2rem] w-full max-w-lg shadow-2xl overflow-hidden">
+            {/* Header */}
+            <div className="p-6 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${sendPhase === "done" ? "bg-emerald-50" : "bg-primary/10"}`}>
+                  {sendPhase === "done"
+                    ? <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                    : <Loader2 className="w-5 h-5 text-primary animate-spin" />}
+                </div>
+                <div>
+                  <h3 className="font-bold text-[#1e293b]">
+                    {sendPhase === "done" ? "Invitaciones enviadas" : "Enviando invitaciones..."}
+                  </h3>
+                  <p className="text-xs text-[#64748b]">
+                    {Object.values(sendStatus).filter((s) => s === "sent").length}/{uniqueEvaluators.length} enviados
+                    {Object.values(sendStatus).filter((s) => s === "error").length > 0 &&
+                      ` · ${Object.values(sendStatus).filter((s) => s === "error").length} con error`}
+                  </p>
+                </div>
+              </div>
+              {/* Progress bar */}
+              <div className="mt-4 h-2 bg-slate-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-primary rounded-full transition-all duration-500"
+                  style={{
+                    width: `${Math.round(
+                      (Object.values(sendStatus).filter((s) => s === "sent" || s === "error").length /
+                        Math.max(uniqueEvaluators.length, 1)) * 100
+                    )}%`,
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Status list */}
+            <div className="px-6 py-4 max-h-72 overflow-y-auto space-y-1">
+              {uniqueEvaluators.map(({ email, name }) => {
+                const status: SendStatus = sendStatus[email] ?? "pending";
+                return (
+                  <div key={email} className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-50">
+                    <div className="shrink-0 w-5 flex items-center justify-center">
+                      {status === "sent"    && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
+                      {status === "sending" && <Loader2 className="w-4 h-4 text-primary animate-spin" />}
+                      {status === "error"   && <X className="w-4 h-4 text-red-500" />}
+                      {status === "pending" && <div className="w-3.5 h-3.5 rounded-full border-2 border-slate-200" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-[#1e293b] truncate">{name || email}</p>
+                      <p className="text-xs text-[#94a3b8] truncate">{email}</p>
+                    </div>
+                    {status === "error" && (
+                      <span className="text-xs font-bold text-red-500 shrink-0">Falló</span>
+                    )}
+                    {status === "sent" && (
+                      <span className="text-xs font-semibold text-emerald-600 shrink-0">Enviado</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Footer */}
+            {sendPhase === "done" && (
+              <div className="p-6 border-t border-slate-100">
+                <button
+                  onClick={onCancel}
+                  className="w-full py-3 rounded-xl bg-[#1e293b] text-white font-bold text-sm hover:bg-primary transition-all"
+                >
+                  Ir a la evaluación →
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
