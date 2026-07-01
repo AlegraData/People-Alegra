@@ -2,7 +2,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import {
   ArrowLeft, ArrowRight, CheckCircle2, Pencil, AlertCircle,
-  ChevronRight, Clock, Users,
+  ChevronRight, Clock, Users, Settings2,
 } from "lucide-react";
 import type { Evaluation360, Evaluation360Assignment, Eval360Question, EvalType } from "@/types/evaluaciones360";
 import { EVAL_TYPE_LABELS, EVAL_TYPE_COLORS, normalizeQuestions } from "@/types/evaluaciones360";
@@ -11,6 +11,7 @@ interface Props {
   evaluation: Evaluation360;
   onBack: () => void;
   userEmail: string;
+  onManageRequest: (e: Evaluation360) => void;
 }
 
 type TakePhase = "list" | "intro" | "question" | "review" | "completed";
@@ -22,7 +23,7 @@ const STATUS_LABELS: Record<string, { label: string; style: string }> = {
   submitted:   { label: "Enviada",      style: "bg-emerald-100 text-emerald-700" },
 };
 
-export default function EvalTaker({ evaluation, onBack, userEmail }: Props) {
+export default function EvalTaker({ evaluation, onBack, userEmail, onManageRequest }: Props) {
   const questionsMap  = normalizeQuestions(evaluation.questions as unknown);
   const myAssignments = evaluation.myAssignments ?? [];
 
@@ -148,13 +149,20 @@ export default function EvalTaker({ evaluation, onBack, userEmail }: Props) {
     return (
       <div className="max-w-full space-y-5">
         <div className="flex items-center gap-3">
-          <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+          <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-full transition-colors shrink-0">
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <div>
-            <h2 className="text-xl font-bold text-[#1e293b]">{evaluation.title}</h2>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-xl font-bold text-[#1e293b] truncate">{evaluation.title}</h2>
             <p className="text-sm text-[#64748b]">Selecciona a quién vas a evaluar</p>
           </div>
+          <button
+            onClick={() => onManageRequest(evaluation)}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-[#64748b] hover:border-primary hover:text-primary transition-all shrink-0"
+          >
+            <Settings2 className="w-4 h-4" />
+            Gestionar evaluados
+          </button>
         </div>
 
         {/* Progress summary */}

@@ -1,17 +1,15 @@
 "use client";
-import { CheckCircle2, Clock, ChevronRight, Users, Settings2 } from "lucide-react";
+import { CheckCircle2, Clock, ChevronRight, Users } from "lucide-react";
 import type { Evaluation360 } from "@/types/evaluaciones360";
 import { EVAL_TYPE_LABELS, EVAL_TYPE_COLORS } from "@/types/evaluaciones360";
 import type { EvalType } from "@/types/evaluaciones360";
 
-
 interface Props {
   evaluations: Evaluation360[];
   onTake: (e: Evaluation360) => void;
-  onManageRequest: (e: Evaluation360) => void;
 }
 
-export default function ViewerList({ evaluations, onTake, onManageRequest }: Props) {
+export default function ViewerList({ evaluations, onTake }: Props) {
   if (evaluations.length === 0) {
     return (
       <div className="bg-white rounded-[2rem] p-16 border border-slate-100 shadow-sm text-center flex flex-col items-center gap-4">
@@ -67,7 +65,7 @@ export default function ViewerList({ evaluations, onTake, onManageRequest }: Pro
                   </div>
                 </div>
 
-                <div className="flex flex-col items-end gap-2 shrink-0">
+                <div className="shrink-0">
                   <button
                     onClick={() => onTake(e)}
                     className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition-all ${
@@ -81,13 +79,6 @@ export default function ViewerList({ evaluations, onTake, onManageRequest }: Pro
                     ) : (
                       <>Evaluar <ChevronRight className="w-4 h-4" /></>
                     )}
-                  </button>
-                  <button
-                    onClick={() => onManageRequest(e)}
-                    className="flex items-center gap-1.5 text-xs font-semibold text-[#64748b] hover:text-primary transition-colors"
-                  >
-                    <Settings2 className="w-3.5 h-3.5" />
-                    Gestionar evaluados
                   </button>
                 </div>
               </div>

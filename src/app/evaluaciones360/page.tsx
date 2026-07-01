@@ -207,8 +207,7 @@ export default function Evaluaciones360Page() {
             ) : (
               <ViewerList
                 evaluations={role === "viewer" ? evaluations : myEvaluations}
-                onTake={(e)          => { setSelected(e); setView("take"); }}
-                onManageRequest={(e) => { setSelected(e); setView("request"); }}
+                onTake={(e) => { setSelected(e); setView("take"); }}
               />
             )}
           </>
@@ -241,7 +240,7 @@ export default function Evaluaciones360Page() {
 
         {/* ── TAKE ───────────────────────────────────────────────────────── */}
         {view === "take" && selected && (
-          <EvalTaker evaluation={selected} onBack={goToList} userEmail={userEmail} />
+          <EvalTaker evaluation={selected} onBack={goToList} userEmail={userEmail} onManageRequest={(e) => { setSelected(e); setView("request"); }} />
         )}
 
         {/* ── CHANGE REQUESTS (admin) ─────────────────────────────────────── */}
