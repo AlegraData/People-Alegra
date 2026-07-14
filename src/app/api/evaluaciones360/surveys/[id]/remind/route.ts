@@ -68,6 +68,7 @@ export async function POST(request: Request, { params }: Ctx) {
           surveyUrl:        evalUrl,
           isReminder:       true,
           template,
+          showFallbackLink: false,
         })
       )
     );

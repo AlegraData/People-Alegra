@@ -31,6 +31,7 @@ export async function POST(request: Request) {
       template,
       surveyTitle:   bodyTitle,
       surveyDescription: bodyDesc,
+      showFallbackLink,
     } = body as {
       surveyId?: string;
       employeeIds?: string[];
@@ -39,6 +40,7 @@ export async function POST(request: Request) {
       template?: EmailTemplateConfig;
       surveyTitle?: string;
       surveyDescription?: string;
+      showFallbackLink?: boolean;
     };
 
     const appUrl    = process.env.APP_URL ?? "http://localhost:3000";
@@ -75,6 +77,7 @@ export async function POST(request: Request) {
         surveyUrl,
         isReminder,
         template:         tmpl,
+        showFallbackLink,
       });
 
       return NextResponse.json({ sent: 1 });

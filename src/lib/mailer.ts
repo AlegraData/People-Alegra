@@ -20,6 +20,7 @@ export interface InvitationPayload {
   surveyUrl: string;
   isReminder?: boolean;
   template?: EmailTemplateConfig | null;
+  showFallbackLink?: boolean;
 }
 
 export async function sendSurveyInvitation(payload: InvitationPayload) {
@@ -29,6 +30,7 @@ export async function sendSurveyInvitation(payload: InvitationPayload) {
     surveyDescription: payload.surveyDescription,
     surveyUrl:        payload.surveyUrl,
     isReminder:       payload.isReminder ?? false,
+    showFallbackLink: payload.showFallbackLink,
   };
 
   const cfg     = payload.template ?? {};

@@ -256,6 +256,7 @@ async function sendInvitationsToAll(
         surveyUrl:        evalUrl,
         isReminder:       false,
         template,
+        showFallbackLink: false,
       })
     )
   );

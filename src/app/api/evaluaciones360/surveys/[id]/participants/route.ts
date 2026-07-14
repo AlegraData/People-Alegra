@@ -153,6 +153,7 @@ export async function POST(request: Request, { params }: Ctx) {
             to: email, recipientName: name,
             surveyTitle: evaluation.title, surveyDescription: evaluation.description ?? "",
             surveyUrl: evalUrl, isReminder: true, template,
+            showFallbackLink: false,
           })
         )
       ).catch((err) => console.error("[invite new 360]", err));

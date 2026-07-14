@@ -34,6 +34,7 @@ export async function POST(request: Request, { params }: Ctx) {
       surveyDescription: evaluation.description ?? "",
       surveyUrl:        `${appUrl}/evaluaciones360`,
       isReminder:       false,
+      showFallbackLink: false,
       template: {
         subject:    evaluation.emailSubject,
         body:       evaluation.emailBody,

@@ -7,7 +7,8 @@
       "PowerShell(cd \"C:\\\\Users\\\\crist\\\\Documents\\\\Alegra\\\\People Hub\"; npx tsc --noEmit 2>&1 | Where-Object { $_ -notmatch \"evaluationChangeRequest\" -and $_ -notmatch \"validator.ts\" } | Select-Object -First 20)",
       "PowerShell(cd \"C:\\\\Users\\\\crist\\\\Documents\\\\Alegra\\\\People Hub\"; npx tsc --noEmit 2>&1 | Where-Object { $_ -notmatch \"evaluationChangeRequest\" -and $_ -notmatch \"validator.ts\" })",
       "Bash(node -e \"const { Inbox } = require\\('lucide-react'\\); console.log\\(typeof Inbox\\);\")",
-      "Bash(xargs grep -l \"duplicate\\\\|clone\")"
+      "Bash(xargs grep -l \"duplicate\\\\|clone\")",
+      "Bash(node -e ' *)"
     ],
     "additionalDirectories": [
       "C:\\Users\\crist\\Documents\\Alegra\\People Hub\\src\\app\\api\\evaluaciones360\\surveys\\[id]"

@@ -11,6 +11,8 @@ export interface EmailTemplateContext {
   surveyDescription?: string | null;
   surveyUrl: string;
   isReminder: boolean;
+  /** Nota "Si el botón no funciona..." con el enlace plano. Default: true; el módulo 360 la oculta. */
+  showFallbackLink?: boolean;
 }
 
 export function resolveSubject(cfg: EmailTemplateConfig, ctx: EmailTemplateContext): string {
@@ -108,11 +110,12 @@ export function buildEmailHtml(cfg: EmailTemplateConfig, ctx: EmailTemplateConte
                 </tr>
               </table>
 
+              ${ctx.showFallbackLink !== false ? `
               <!-- Nota -->
               <p style="margin:0;font-size:12px;color:#94a3b8;line-height:1.6;">
                 Si el botón no funciona, copia y pega este enlace en tu navegador:<br/>
                 <a href="${ctx.surveyUrl}" style="color:#00b8a3;word-break:break-all;">${ctx.surveyUrl}</a>
-              </p>
+              </p>` : ""}
             </td>
           </tr>
 

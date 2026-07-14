@@ -12,10 +12,11 @@ interface Props {
   surveyDescription?: string;
   isReminder?: boolean;
   surveyId?: string;
+  showFallbackLink?: boolean;
 }
 
 export default function EmailTemplateEditor({
-  value, onChange, surveyTitle, surveyDescription, isReminder = false, surveyId,
+  value, onChange, surveyTitle, surveyDescription, isReminder = false, surveyId, showFallbackLink = true,
 }: Props) {
   const [tab, setTab]             = useState<"edit" | "preview">("edit");
   const [testEmail, setTestEmail] = useState("");
@@ -28,6 +29,7 @@ export default function EmailTemplateEditor({
     surveyDescription,
     surveyUrl:        "#",
     isReminder,
+    showFallbackLink,
   };
 
   const handleTestSend = async () => {
@@ -45,6 +47,7 @@ export default function EmailTemplateEditor({
           surveyTitle:      surveyTitle || "Encuesta de prueba",
           surveyDescription: surveyDescription,
           isReminder,
+          showFallbackLink,
         }),
       });
       const data = await res.json();
