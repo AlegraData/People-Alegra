@@ -2,9 +2,11 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   ArrowLeft, UserPlus, Trash2, Send, CheckCircle2, Clock,
-  Upload, Download, X, Search, Users, Mail, MailX,
+  Upload, Download, X, Search, Users, Mail, MailX, Settings2, Save,
 } from "lucide-react";
 import EmployeeSearchCombobox, { type EmployeeResult } from "@/components/evaluaciones360/EmployeeSearchCombobox";
+import EmailTemplateEditor from "@/components/clima/EmailTemplateEditor";
+import type { EmailTemplateConfig } from "@/lib/emailTemplate";
 import * as XLSX from "xlsx";
 import type { Evaluation360, Evaluation360Assignment, EvalType, ParticipantRow } from "@/types/evaluaciones360";
 import { EVAL_TYPE_LABELS, EVAL_TYPE_COLORS } from "@/types/evaluaciones360";
@@ -71,6 +73,13 @@ export default function EvalParticipants({ evaluation, onBack }: Props) {
   const [actionId, setActionId]         = useState<string | null>(null);
   const [globalMsg, setGlobalMsg]       = useState<{ type: "success" | "error"; msg: string } | null>(null);
   const [sendInviteOnImport, setSendInviteOnImport] = useState(true);
+  // Plantilla del correo de invitación — precargada con la configurada al crear la evaluación
+  const [emailTemplate, setEmailTemplate] = useState<EmailTemplateConfig>({
+    subject:    evaluation.emailSubject    ?? null,
+    body:       evaluation.emailBody       ?? null,
+    buttonText: evaluation.emailButtonText ?? null,
+    footer:     evaluation.emailFooter     ?? null,
+  });
   const fileRef = useRef<HTMLInputElement>(null);
 
   const fetchAssignments = useCallback(async () => {
@@ -171,7 +180,11 @@ export default function EvalParticipants({ evaluation, onBack }: Props) {
         const res = await fetch(`/api/evaluaciones360/surveys/${evaluation.id}/participants`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ participants, sendInvitation: sendInviteOnImport }),
+          body: JSON.stringify({
+            participants,
+            sendInvitation: sendInviteOnImport,
+            emailTemplate: sendInviteOnImport ? emailTemplate : undefined,
+          }),
         });
         if (res.ok) {
           const { created } = await res.json();
@@ -449,7 +462,9 @@ export default function EvalParticipants({ evaluation, onBack }: Props) {
       {/* Add form */}
       {showAdd && (
         <AddForm
-          evaluationId={evaluation.id}
+          evaluation={evaluation}
+          emailTemplate={emailTemplate}
+          onTemplateChange={setEmailTemplate}
           onAdded={() => { fetchAssignments(); setShowAdd(false); setGlobalMsg({ type: "success", msg: "Participante agregado." }); }}
         />
       )}
@@ -596,7 +611,12 @@ export default function EvalParticipants({ evaluation, onBack }: Props) {
 }
 
 // ── Add participant form ────────────────────────────────────────────────────────
-function AddForm({ evaluationId, onAdded }: { evaluationId: string; onAdded: () => void }) {
+function AddForm({ evaluation, emailTemplate, onTemplateChange, onAdded }: {
+  evaluation: Evaluation360;
+  emailTemplate: EmailTemplateConfig;
+  onTemplateChange: (v: EmailTemplateConfig) => void;
+  onAdded: () => void;
+}) {
   const [evaluator, setEvaluator] = useState<EmployeeResult | null>(null);
   const [evaluatee, setEvaluatee] = useState<EmployeeResult | null>(null);
   const [evalType, setEvalType]   = useState<EvalType>("paralela");
@@ -604,6 +624,9 @@ function AddForm({ evaluationId, onAdded }: { evaluationId: string; onAdded: () 
   const [saving, setSaving]       = useState(false);
   const [evKey, setEvKey]         = useState(0);
   const [eeKey, setEeKey]         = useState(0);
+  const [showEmailConfig, setShowEmailConfig] = useState(false);
+  const [savingTemplate, setSavingTemplate]   = useState(false);
+  const [templateMsg, setTemplateMsg] = useState<{ type: "success" | "error"; msg: string } | null>(null);
 
   const handleAdd = async () => {
     if (!evaluator || !evaluatee) { alert("Selecciona el evaluador y el evaluado."); return; }
@@ -617,10 +640,14 @@ function AddForm({ evaluationId, onAdded }: { evaluationId: string; onAdded: () 
         team:           evaluatee.equipo || "",
         evaluationType: evalType,
       };
-      const res = await fetch(`/api/evaluaciones360/surveys/${evaluationId}/participants`, {
+      const res = await fetch(`/api/evaluaciones360/surveys/${evaluation.id}/participants`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ participants: [participant], sendInvitation: sendInvite }),
+        body: JSON.stringify({
+          participants: [participant],
+          sendInvitation: sendInvite,
+          emailTemplate: sendInvite ? emailTemplate : undefined,
+        }),
       });
       if (res.ok) {
         setEvaluator(null); setEvaluatee(null); setEvalType("paralela");
@@ -628,6 +655,31 @@ function AddForm({ evaluationId, onAdded }: { evaluationId: string; onAdded: () 
         onAdded();
       }
     } finally { setSaving(false); }
+  };
+
+  const handleSaveTemplate = async () => {
+    setSavingTemplate(true);
+    setTemplateMsg(null);
+    try {
+      const res = await fetch(`/api/evaluaciones360/surveys/${evaluation.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          emailSubject:    emailTemplate.subject    ?? "",
+          emailBody:       emailTemplate.body       ?? "",
+          emailButtonText: emailTemplate.buttonText ?? "",
+          emailFooter:     emailTemplate.footer     ?? "",
+        }),
+      });
+      setTemplateMsg(res.ok
+        ? { type: "success", msg: "Plantilla guardada. Se usará también en próximas invitaciones y recordatorios." }
+        : { type: "error", msg: "No se pudo guardar la plantilla." });
+    } catch {
+      setTemplateMsg({ type: "error", msg: "Error de red al guardar la plantilla." });
+    } finally {
+      setSavingTemplate(false);
+      setTimeout(() => setTemplateMsg(null), 6000);
+    }
   };
 
   return (
@@ -673,8 +725,8 @@ function AddForm({ evaluationId, onAdded }: { evaluationId: string; onAdded: () 
         </div>
       </div>
 
-      {/* Invitation toggle */}
-      <div className="flex items-center gap-3 pt-1">
+      {/* Invitation toggle + email config */}
+      <div className="flex items-center gap-3 pt-1 flex-wrap">
         <button
           type="button"
           onClick={() => setSendInvite((v) => !v)}
@@ -687,10 +739,73 @@ function AddForm({ evaluationId, onAdded }: { evaluationId: string; onAdded: () 
           {sendInvite ? <Mail className="w-4 h-4" /> : <MailX className="w-4 h-4" />}
           {sendInvite ? "Enviar correo de invitación" : "No enviar correo"}
         </button>
+        {sendInvite && (
+          <button
+            type="button"
+            onClick={() => setShowEmailConfig((v) => !v)}
+            className={`flex items-center gap-2 text-sm font-bold px-4 py-2.5 rounded-xl border-2 transition-all ${
+              showEmailConfig
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-slate-200 bg-white text-[#64748b] hover:border-primary/40 hover:text-primary"
+            }`}
+          >
+            <Settings2 className="w-4 h-4" />
+            {showEmailConfig ? "Ocultar configuración" : "Configurar correo"}
+          </button>
+        )}
         <p className="text-xs text-[#94a3b8]">
           {sendInvite ? "El evaluador recibirá un correo con el enlace." : "Se agrega sin notificar al evaluador."}
         </p>
       </div>
+
+      {/* Email template config */}
+      {sendInvite && showEmailConfig && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-[#1e293b] flex items-center gap-2">
+                <Mail className="w-4 h-4 text-primary" /> Correo de invitación
+              </p>
+              <p className="text-xs text-[#94a3b8] mt-0.5">
+                Es el mismo correo configurado al crear la evaluación. Los cambios se usarán al agregar este participante;
+                pulsa "Guardar plantilla" para aplicarlos también a próximos envíos y recordatorios.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleSaveTemplate}
+              disabled={savingTemplate}
+              className="flex items-center gap-1.5 text-xs font-bold bg-[#1e293b] text-white px-4 py-2 rounded-lg hover:bg-primary transition-colors disabled:opacity-50 shrink-0"
+            >
+              {savingTemplate
+                ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                : <Save className="w-3.5 h-3.5" />}
+              Guardar plantilla
+            </button>
+          </div>
+
+          {templateMsg && (
+            <div className={`text-xs font-semibold px-3 py-2 rounded-lg border ${
+              templateMsg.type === "success"
+                ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                : "bg-red-50 border-red-200 text-red-600"
+            }`}>
+              {templateMsg.msg}
+            </div>
+          )}
+
+          <EmailTemplateEditor
+            value={emailTemplate}
+            onChange={onTemplateChange}
+            surveyTitle={evaluation.title}
+            surveyDescription={evaluation.description ?? ""}
+            isReminder={false}
+            surveyId={evaluation.id}
+            module="360"
+            showFallbackLink={false}
+          />
+        </div>
+      )}
 
       <button
         onClick={handleAdd}

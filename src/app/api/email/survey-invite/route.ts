@@ -32,6 +32,7 @@ export async function POST(request: Request) {
       surveyTitle:   bodyTitle,
       surveyDescription: bodyDesc,
       showFallbackLink,
+      module: moduleName = "clima",
     } = body as {
       surveyId?: string;
       employeeIds?: string[];
@@ -41,12 +42,15 @@ export async function POST(request: Request) {
       surveyTitle?: string;
       surveyDescription?: string;
       showFallbackLink?: boolean;
+      module?: "clima" | "360";
     };
 
     const appUrl    = process.env.APP_URL ?? "http://localhost:3000";
-    const surveyUrl = surveyId
-      ? `${appUrl}/clima/encuesta/${surveyId}`
-      : `${appUrl}/clima`;
+    const surveyUrl = moduleName === "360"
+      ? `${appUrl}/evaluaciones360`
+      : surveyId
+        ? `${appUrl}/clima/encuesta/${surveyId}`
+        : `${appUrl}/clima`;
 
     // ── Modo test: enviar solo al correo de prueba ──────────────────────────
     if (testEmail) {
@@ -55,7 +59,19 @@ export async function POST(request: Request) {
       let tmpl  = template  ?? {};
 
       // Si hay surveyId, combinar con el template almacenado (el body override gana)
-      if (surveyId) {
+      if (surveyId && moduleName === "360") {
+        const evaluation = await prisma.evaluation360.findUnique({ where: { id: surveyId } });
+        if (evaluation) {
+          title = evaluation.title;
+          desc  = evaluation.description ?? undefined;
+          tmpl  = {
+            subject:    template?.subject    ?? evaluation.emailSubject,
+            body:       template?.body       ?? evaluation.emailBody,
+            buttonText: template?.buttonText ?? evaluation.emailButtonText,
+            footer:     template?.footer     ?? evaluation.emailFooter,
+          };
+        }
+      } else if (surveyId) {
         const survey = await prisma.climateSurvey.findUnique({ where: { id: surveyId } });
         if (survey) {
           title = survey.title;

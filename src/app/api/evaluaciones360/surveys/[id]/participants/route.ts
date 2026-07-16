@@ -68,7 +68,11 @@ export async function POST(request: Request, { params }: Ctx) {
     if (!evaluation) return NextResponse.json({ error: "Evaluación no encontrada" }, { status: 404 });
 
     const body = await request.json();
-    const { participants, sendInvitation } = body as { participants: any[]; sendInvitation?: boolean };
+    const { participants, sendInvitation, emailTemplate } = body as {
+      participants: any[];
+      sendInvitation?: boolean;
+      emailTemplate?: { subject?: string | null; body?: string | null; buttonText?: string | null; footer?: string | null };
+    };
 
     if (!Array.isArray(participants) || participants.length === 0) {
       return NextResponse.json({ error: "Sin participantes" }, { status: 400 });
@@ -140,11 +144,12 @@ export async function POST(request: Request, { params }: Ctx) {
 
       const appUrl  = process.env.APP_URL ?? "http://localhost:3000";
       const evalUrl = `${appUrl}/evaluaciones360`;
+      // Plantilla personalizada del request > plantilla guardada en la evaluación
       const template = {
-        subject:    evaluation.emailSubject,
-        body:       evaluation.emailBody,
-        buttonText: evaluation.emailButtonText,
-        footer:     evaluation.emailFooter,
+        subject:    emailTemplate?.subject    ?? evaluation.emailSubject,
+        body:       emailTemplate?.body       ?? evaluation.emailBody,
+        buttonText: emailTemplate?.buttonText ?? evaluation.emailButtonText,
+        footer:     emailTemplate?.footer     ?? evaluation.emailFooter,
       };
 
       Promise.allSettled(
@@ -152,7 +157,7 @@ export async function POST(request: Request, { params }: Ctx) {
           sendSurveyInvitation({
             to: email, recipientName: name,
             surveyTitle: evaluation.title, surveyDescription: evaluation.description ?? "",
-            surveyUrl: evalUrl, isReminder: true, template,
+            surveyUrl: evalUrl, isReminder: false, template,
             showFallbackLink: false,
           })
         )

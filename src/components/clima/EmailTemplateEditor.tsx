@@ -13,10 +13,12 @@ interface Props {
   isReminder?: boolean;
   surveyId?: string;
   showFallbackLink?: boolean;
+  /** Módulo dueño de la encuesta: define el enlace y la plantilla base del envío de prueba. */
+  module?: "clima" | "360";
 }
 
 export default function EmailTemplateEditor({
-  value, onChange, surveyTitle, surveyDescription, isReminder = false, surveyId, showFallbackLink = true,
+  value, onChange, surveyTitle, surveyDescription, isReminder = false, surveyId, showFallbackLink = true, module = "clima",
 }: Props) {
   const [tab, setTab]             = useState<"edit" | "preview">("edit");
   const [testEmail, setTestEmail] = useState("");
@@ -48,6 +50,7 @@ export default function EmailTemplateEditor({
           surveyDescription: surveyDescription,
           isReminder,
           showFallbackLink,
+          module,
         }),
       });
       const data = await res.json();

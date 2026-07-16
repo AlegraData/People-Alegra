@@ -567,6 +567,7 @@ export default function EvalBuilder({ onSave, onCancel, initialData, isDuplicate
                   surveyDescription={description}
                   isReminder={false}
                   surveyId={isEditMode ? initialData?.id : undefined}
+                  module="360"
                   showFallbackLink={false}
                 />
               </div>
@@ -936,6 +937,7 @@ export default function EvalBuilder({ onSave, onCancel, initialData, isDuplicate
                 onChange={setEmailTemplate}
                 surveyTitle={title}
                 surveyDescription={description}
+                module="360"
                 showFallbackLink={false}
               />
 
