@@ -152,16 +152,36 @@ export async function POST(request: Request, { params }: Ctx) {
         footer:     emailTemplate?.footer     ?? evaluation.emailFooter,
       };
 
-      Promise.allSettled(
-        Array.from(uniqueEvaluators.entries()).map(([email, name]) =>
-          sendSurveyInvitation({
-            to: email, recipientName: name,
-            surveyTitle: evaluation.title, surveyDescription: evaluation.description ?? "",
-            surveyUrl: evalUrl, isReminder: false, template,
-            showFallbackLink: false,
-          })
-        )
-      ).catch((err) => console.error("[invite new 360]", err));
+      // Envío por lotes y esperado: en Cloud Run la CPU se estrangula al
+      // responder, así que un fire-and-forget masivo pierde correos en silencio.
+      const entries = Array.from(uniqueEvaluators.entries());
+      let invitationsSent = 0;
+      const invitationErrors: string[] = [];
+      for (let i = 0; i < entries.length; i += 10) {
+        const chunk = entries.slice(i, i + 10);
+        const results = await Promise.allSettled(
+          chunk.map(([email, name]) =>
+            sendSurveyInvitation({
+              to: email, recipientName: name,
+              surveyTitle: evaluation.title, surveyDescription: evaluation.description ?? "",
+              surveyUrl: evalUrl, isReminder: false, template,
+              showFallbackLink: false,
+            })
+          )
+        );
+        results.forEach((r, j) => {
+          if (r.status === "fulfilled") invitationsSent++;
+          else {
+            invitationErrors.push(chunk[j][0]);
+            console.error("[invite new 360]", chunk[j][0], r.reason);
+          }
+        });
+      }
+      return NextResponse.json({
+        created: created.count,
+        invitationsSent,
+        invitationErrors: invitationErrors.length ? invitationErrors : undefined,
+      });
     }
 
     return NextResponse.json({ created: created.count });

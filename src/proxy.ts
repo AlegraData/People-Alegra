@@ -72,7 +72,9 @@ export async function proxy(request: NextRequest) {
 
   if (!user && !isPublic) {
     const loginUrl = new URL("/login", origin);
-    loginUrl.searchParams.set("next", pathname);
+    // Incluir el query string para que links directos (ej. /enps?survey=<id>)
+    // sobrevivan al flujo de login
+    loginUrl.searchParams.set("next", pathname + request.nextUrl.search);
     return NextResponse.redirect(loginUrl);
   }
 

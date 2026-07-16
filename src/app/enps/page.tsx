@@ -37,29 +37,60 @@ export default function EnpsPage() {
     toastTimer.current = setTimeout(() => setToast(null), 3500);
   };
 
-  const fetchSurveys = useCallback(async () => {
+  const fetchSurveys = useCallback(async (): Promise<EnpsSurvey[]> => {
     try {
       const res = await fetch("/api/enps/surveys");
       if (res.ok) {
         const data = await res.json();
-        setSurveys(Array.isArray(data) ? data : []);
+        const list: EnpsSurvey[] = Array.isArray(data) ? data : [];
+        setSurveys(list);
+        return list;
       }
     } catch (e) {
       console.error("Error cargando campañas eNPS.", e);
     }
+    return [];
   }, []);
+
+  // Abre directamente la encuesta indicada en ?survey=<id> (link compartido por correo)
+  const openSurveyFromUrl = (list: EnpsSurvey[], userRole: Role) => {
+    const surveyId = new URLSearchParams(window.location.search).get("survey");
+    if (!surveyId) return;
+    // Limpiar el parámetro para que "volver" muestre la lista normal
+    window.history.replaceState(null, "", "/enps");
+
+    const target = list.find((s) => s.id === surveyId);
+    if (!target) {
+      showToast("No encontramos esta encuesta o no tienes acceso a ella.", "error");
+      return;
+    }
+    if (target.hasResponded) {
+      showToast("Ya respondiste esta encuesta. ¡Gracias por participar!");
+      return;
+    }
+    if (!target.isActive) {
+      showToast("Esta campaña ya fue cerrada.", "error");
+      return;
+    }
+    if (userRole === "admin" || userRole === "manager") setAdminMode("participate");
+    setActiveSurvey(target);
+    setViewState("take");
+  };
 
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
+        let userRole: Role = "viewer";
         try {
           const roleRes = await fetch("/api/auth/role?module=enps");
-          setRole(roleRes.ok ? (await roleRes.json()).role ?? "viewer" : "viewer");
+          userRole = roleRes.ok ? (await roleRes.json()).role ?? "viewer" : "viewer";
         } catch {
-          setRole("viewer");
+          userRole = "viewer";
         }
-        await fetchSurveys();
+        setRole(userRole);
+        const list = await fetchSurveys();
+        openSurveyFromUrl(list, userRole);
       }
       setLoading(false);
     };
@@ -175,6 +206,24 @@ export default function EnpsPage() {
     }
   };
 
+  // ── Copiar link directo a la encuesta ────────────────────────────────────────
+  const handleCopyLink = async (s: EnpsSurvey) => {
+    const url = `${window.location.origin}/enps?survey=${s.id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      showToast("Enlace copiado al portapapeles");
+    } catch {
+      // Fallback para contextos sin acceso al portapapeles
+      const ta = document.createElement("textarea");
+      ta.value = url;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      showToast("Enlace copiado al portapapeles");
+    }
+  };
+
   const handleSave = (formData: EnpsSurveyFormData) => {
     if (viewState === "edit") handleUpdate(formData);
     else handleCreate(formData);
@@ -189,7 +238,9 @@ export default function EnpsPage() {
   }
 
   const effectiveRole: Role =
-    role === "admin" && adminMode === "participate" ? "viewer" : (role as Role);
+    (role === "admin" || role === "manager") && adminMode === "participate"
+      ? "viewer"
+      : (role as Role);
 
   return (
     <div className="space-y-8">
@@ -226,8 +277,8 @@ export default function EnpsPage() {
           <p className="text-[#64748b]">Mide la disposición de los colaboradores a recomendar Alegra.</p>
         </div>
 
-        {/* Selector de modo — solo admin en lista */}
-        {role === "admin" && viewState === "list" && (
+        {/* Selector de modo — admin y manager en lista */}
+        {(role === "admin" || role === "manager") && viewState === "list" && (
           <div className="flex items-center bg-slate-100 rounded-2xl p-1 gap-1 self-start md:self-auto">
             <button
               onClick={() => handleAdminModeChange("manage")}
@@ -267,6 +318,7 @@ export default function EnpsPage() {
               onManageParticipants={(s) => { setActiveSurvey(s); setViewState("participants"); }}
               onDelete={handleDelete}
               onToggleStatus={handleToggleStatus}
+              onCopyLink={handleCopyLink}
             />
           )}
           {effectiveRole === "manager" && (

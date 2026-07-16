@@ -1,5 +1,5 @@
 "use client";
-import { Trash2, BarChart2, Plus, Users, Users2, Pencil, Lock, Unlock } from "lucide-react";
+import { Trash2, BarChart2, Plus, Users, Users2, Pencil, Lock, Unlock, Link2 } from "lucide-react";
 import type { EnpsSurvey } from "@/types/enps";
 
 interface Props {
@@ -10,6 +10,7 @@ interface Props {
   onManageParticipants:(s: EnpsSurvey) => void;
   onDelete:            (id: string) => void;
   onToggleStatus:      (id: string, currentIsActive: boolean) => void;
+  onCopyLink:          (s: EnpsSurvey) => void;
 }
 
 function EnpsScorePill({ score }: { score: number | null }) {
@@ -32,7 +33,7 @@ function EnpsScorePill({ score }: { score: number | null }) {
 }
 
 export default function EnpsAdminList({
-  surveys, onCreate, onEdit, onViewResults, onManageParticipants, onDelete, onToggleStatus,
+  surveys, onCreate, onEdit, onViewResults, onManageParticipants, onDelete, onToggleStatus, onCopyLink,
 }: Props) {
   const handleDelete = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -136,6 +137,13 @@ export default function EnpsAdminList({
                         title="Gestionar participantes"
                       >
                         <Users2 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => onCopyLink(s)}
+                        className="p-2 rounded-lg text-[#64748b] hover:bg-primary/10 hover:text-primary transition-colors"
+                        title="Copiar enlace directo a la encuesta"
+                      >
+                        <Link2 className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => onEdit(s)}
