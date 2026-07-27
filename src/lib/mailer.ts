@@ -2,10 +2,15 @@ import nodemailer from "nodemailer";
 import type { EmailTemplateConfig, EmailTemplateContext } from "./emailTemplate";
 import { buildEmailHtml, resolveSubject } from "./emailTemplate";
 
+// Pool de conexiones: sin él, cada sendMail abre una conexión SMTP con login
+// propio y Gmail bloquea la cuenta en envíos masivos (454 Too many login attempts).
 const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
   port: 587,
   secure: false,
+  pool: true,
+  maxConnections: 3,
+  maxMessages: 200,
   auth: {
     user: process.env.GMAIL_USER,
     pass: process.env.GMAIL_APP_PASSWORD,

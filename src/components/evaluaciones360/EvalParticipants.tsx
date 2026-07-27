@@ -187,15 +187,43 @@ export default function EvalParticipants({ evaluation, onBack }: Props) {
           }),
         });
         if (res.ok) {
-          const { created } = await res.json();
-          const inviteMsg = sendInviteOnImport ? " · Invitaciones enviadas" : "";
-          setGlobalMsg({ type: "success", msg: `${created} participante${created !== 1 ? "s" : ""} agregados${inviteMsg}` });
+          const { created, invitationsSent, invitationErrors } = await res.json() as {
+            created: number; invitationsSent?: number; invitationErrors?: string[];
+          };
+          const skipped = participants.length - created;
+          const parts: string[] = [];
+          parts.push(created > 0
+            ? `${created} participante${created !== 1 ? "s" : ""} nuevo${created !== 1 ? "s" : ""} agregado${created !== 1 ? "s" : ""}`
+            : "Sin filas nuevas");
+          if (skipped > 0) parts.push(`${skipped} ya estaban cargadas`);
+          if (sendInviteOnImport) {
+            if (typeof invitationsSent === "number") {
+              parts.push(`${invitationsSent} invitaciones enviadas${invitationErrors?.length ? ` (${invitationErrors.length} fallidas)` : ""}`);
+            } else {
+              parts.push("Invitaciones enviadas");
+            }
+          }
+          setGlobalMsg({ type: "success", msg: parts.join(" · ") });
           await fetchAssignments();
         }
       } catch { setGlobalMsg({ type: "error", msg: "Error al importar el archivo." }); }
     };
     reader.readAsBinaryString(file);
     e.target.value = "";
+  };
+
+  const handleDownloadTemplate = () => {
+    const ws = XLSX.utils.aoa_to_sheet([
+      ["Correo Evaluador", "Nombre Evaluador", "Correo Evaluado", "Nombre Evaluado", "Equipo", "Tipo"],
+      ["lider@alegra.com",   "Nombre Líder",   "persona@alegra.com", "Nombre Persona", "Tech", "descendente"],
+      ["persona@alegra.com", "Nombre Persona", "lider@alegra.com",   "Nombre Líder",   "Tech", "ascendente"],
+      ["par1@alegra.com",    "Nombre Par 1",   "par2@alegra.com",    "Nombre Par 2",   "Tech", "paralela"],
+      ["persona@alegra.com", "Nombre Persona", "persona@alegra.com", "Nombre Persona", "Tech", "autoevaluacion"],
+    ]);
+    ws["!cols"] = [{ wch: 28 }, { wch: 24 }, { wch: 28 }, { wch: 24 }, { wch: 14 }, { wch: 16 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Participantes 360");
+    XLSX.writeFile(wb, "plantilla_participantes_360.xlsx");
   };
 
   const handleExport = () => {
@@ -407,6 +435,13 @@ export default function EvalParticipants({ evaluation, onBack }: Props) {
             <Send className="w-3.5 h-3.5" />
             {sendInviteOnImport ? "Con invitación" : "Sin invitación"}
           </button>
+          <button
+            onClick={handleDownloadTemplate}
+            title="Descargar plantilla vacía con el formato que acepta la importación"
+            className="flex items-center gap-1.5 text-xs font-bold bg-slate-100 text-[#64748b] px-3 py-2 rounded-lg hover:bg-slate-200 transition-colors"
+          >
+            <Download className="w-3.5 h-3.5" /> Plantilla
+          </button>
           <button onClick={() => fileRef.current?.click()} className="flex items-center gap-1.5 text-xs font-bold bg-primary/10 text-primary px-3 py-2 rounded-lg hover:bg-primary/20 transition-colors">
             <Upload className="w-3.5 h-3.5" /> Importar
           </button>
@@ -463,6 +498,7 @@ export default function EvalParticipants({ evaluation, onBack }: Props) {
       {showAdd && (
         <AddForm
           evaluation={evaluation}
+          assignments={assignments}
           emailTemplate={emailTemplate}
           onTemplateChange={setEmailTemplate}
           onAdded={() => { fetchAssignments(); setShowAdd(false); setGlobalMsg({ type: "success", msg: "Participante agregado." }); }}
@@ -611,8 +647,9 @@ export default function EvalParticipants({ evaluation, onBack }: Props) {
 }
 
 // ── Add participant form ────────────────────────────────────────────────────────
-function AddForm({ evaluation, emailTemplate, onTemplateChange, onAdded }: {
+function AddForm({ evaluation, assignments, emailTemplate, onTemplateChange, onAdded }: {
   evaluation: Evaluation360;
+  assignments: Evaluation360Assignment[];
   emailTemplate: EmailTemplateConfig;
   onTemplateChange: (v: EmailTemplateConfig) => void;
   onAdded: () => void;
@@ -627,10 +664,23 @@ function AddForm({ evaluation, emailTemplate, onTemplateChange, onAdded }: {
   const [showEmailConfig, setShowEmailConfig] = useState(false);
   const [savingTemplate, setSavingTemplate]   = useState(false);
   const [templateMsg, setTemplateMsg] = useState<{ type: "success" | "error"; msg: string } | null>(null);
+  const [addMsg, setAddMsg] = useState<string | null>(null);
+
+  // Asignación ya existente con el mismo evaluador + evaluado + tipo
+  const existing = useMemo(() => {
+    if (!evaluator || !evaluatee) return null;
+    return assignments.find((a) =>
+      a.evaluatorEmail.toLowerCase() === evaluator.correo.toLowerCase() &&
+      a.evaluateeEmail.toLowerCase() === evaluatee.correo.toLowerCase() &&
+      a.evaluationType === evalType
+    ) ?? null;
+  }, [assignments, evaluator, evaluatee, evalType]);
 
   const handleAdd = async () => {
     if (!evaluator || !evaluatee) { alert("Selecciona el evaluador y el evaluado."); return; }
+    if (existing) return; // bloqueado: ya existe
     setSaving(true);
+    setAddMsg(null);
     try {
       const participant: ParticipantRow = {
         evaluatorEmail: evaluator.correo,
@@ -650,9 +700,15 @@ function AddForm({ evaluation, emailTemplate, onTemplateChange, onAdded }: {
         }),
       });
       if (res.ok) {
-        setEvaluator(null); setEvaluatee(null); setEvalType("paralela");
-        setEvKey((k) => k + 1); setEeKey((k) => k + 1);
-        onAdded();
+        const { created } = await res.json() as { created: number; duplicates?: number };
+        if (created === 0) {
+          // Respaldo del servidor: no se creó porque ya existía (no se envió correo)
+          setAddMsg("Esta asignación ya existe — no se duplicó ni se reenvió la invitación.");
+        } else {
+          setEvaluator(null); setEvaluatee(null); setEvalType("paralela");
+          setEvKey((k) => k + 1); setEeKey((k) => k + 1);
+          onAdded();
+        }
       }
     } finally { setSaving(false); }
   };
@@ -807,9 +863,29 @@ function AddForm({ evaluation, emailTemplate, onTemplateChange, onAdded }: {
         </div>
       )}
 
+      {/* Aviso: la asignación ya existe */}
+      {existing && (
+        <div className="flex items-start gap-2 text-sm font-semibold bg-amber-50 border border-amber-300 text-amber-800 px-4 py-3 rounded-xl">
+          <span aria-hidden>⚠️</span>
+          <span>
+            Esta asignación ya existe: <strong>{existing.evaluatorName || existing.evaluatorEmail}</strong> ya
+            evalúa a <strong>{existing.evaluateeName || existing.evaluateeEmail}</strong> como{" "}
+            <strong>{EVAL_TYPE_LABELS[existing.evaluationType as EvalType]}</strong>
+            {" "}(estado: {STATUS_CONFIG[existing.status]?.label || existing.status}). No se puede duplicar.
+          </span>
+        </div>
+      )}
+
+      {addMsg && (
+        <div className="text-sm font-semibold bg-amber-50 border border-amber-300 text-amber-800 px-4 py-3 rounded-xl">
+          {addMsg}
+        </div>
+      )}
+
       <button
         onClick={handleAdd}
-        disabled={saving || !evaluator || !evaluatee}
+        disabled={saving || !evaluator || !evaluatee || !!existing}
+        title={existing ? "Ya existe esta asignación" : undefined}
         className="flex items-center gap-2 bg-[#1e293b] text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {saving

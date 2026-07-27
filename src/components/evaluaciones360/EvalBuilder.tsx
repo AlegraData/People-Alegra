@@ -818,7 +818,18 @@ export default function EvalBuilder({ onSave, onCancel, initialData, isDuplicate
             </div>
           </div>
 
-          <AddParticipantForm onAdd={(p) => setParticipants((prev) => [...prev, p])} />
+          <AddParticipantForm onAdd={(p) => {
+            const dup = participants.some((x) =>
+              x.evaluatorEmail.toLowerCase() === p.evaluatorEmail.toLowerCase() &&
+              x.evaluateeEmail.toLowerCase() === p.evaluateeEmail.toLowerCase() &&
+              x.evaluationType === p.evaluationType
+            );
+            if (dup) {
+              alert("Esta asignación ya está en la lista (mismo evaluador, evaluado y tipo). No se duplicó.");
+              return;
+            }
+            setParticipants((prev) => [...prev, p]);
+          }} />
 
           {participants.length === 0 ? (
             <div className="py-10 text-center text-sm text-[#64748b] bg-slate-50 rounded-2xl border border-dashed border-slate-200">

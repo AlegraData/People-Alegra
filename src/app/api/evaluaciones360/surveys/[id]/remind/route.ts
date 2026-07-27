@@ -58,22 +58,36 @@ export async function POST(request: Request, { params }: Ctx) {
       footer:     evaluation.emailFooter,
     };
 
-    await Promise.allSettled(
-      toRemind.map((a) =>
-        sendSurveyInvitation({
-          to:               a.evaluatorEmail,
-          recipientName:    a.evaluatorName || a.evaluatorEmail,
-          surveyTitle:      evaluation.title,
-          surveyDescription: evaluation.description ?? "",
-          surveyUrl:        evalUrl,
-          isReminder:       true,
-          template,
-          showFallbackLink: false,
-        })
-      )
-    );
+    // Por lotes de 10: cientos de conexiones SMTP simultáneas hacen que Gmail
+    // rechace parte de los envíos (421/454).
+    let sent = 0;
+    const sendErrors: string[] = [];
+    for (let i = 0; i < toRemind.length; i += 10) {
+      const chunk = toRemind.slice(i, i + 10);
+      const results = await Promise.allSettled(
+        chunk.map((a) =>
+          sendSurveyInvitation({
+            to:               a.evaluatorEmail,
+            recipientName:    a.evaluatorName || a.evaluatorEmail,
+            surveyTitle:      evaluation.title,
+            surveyDescription: evaluation.description ?? "",
+            surveyUrl:        evalUrl,
+            isReminder:       true,
+            template,
+            showFallbackLink: false,
+          })
+        )
+      );
+      results.forEach((r, j) => {
+        if (r.status === "fulfilled") sent++;
+        else {
+          sendErrors.push(chunk[j].evaluatorEmail);
+          console.error("[remind 360]", chunk[j].evaluatorEmail, r.reason);
+        }
+      });
+    }
 
-    return NextResponse.json({ sent: toRemind.length });
+    return NextResponse.json({ sent, errors: sendErrors.length ? sendErrors : undefined });
   } catch (error) {
     console.error("[POST remind]", error);
     return NextResponse.json({ error: "Error interno" }, { status: 500 });

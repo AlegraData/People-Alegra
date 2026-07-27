@@ -78,9 +78,26 @@ export async function POST(request: Request, { params }: Ctx) {
       return NextResponse.json({ error: "Sin participantes" }, { status: 400 });
     }
 
+    // Detectar asignaciones que ya existen: no se re-crean ni generan re-envío de invitación
+    const existingRows = await prisma.evaluation360Assignment.findMany({
+      where: { evaluationId: id },
+      select: { evaluatorEmail: true, evaluateeEmail: true, evaluationType: true },
+    });
+    const keyOf = (evr: string, eve: string, type: string) =>
+      `${evr.trim().toLowerCase()}|${eve.trim().toLowerCase()}|${type}`;
+    const existingKeys = new Set(existingRows.map((r) => keyOf(r.evaluatorEmail, r.evaluateeEmail, r.evaluationType)));
+    const newParticipants = participants.filter(
+      (p) => !existingKeys.has(keyOf(p.evaluatorEmail, p.evaluateeEmail, p.evaluationType))
+    );
+    const duplicates = participants.length - newParticipants.length;
+
+    if (newParticipants.length === 0) {
+      return NextResponse.json({ created: 0, duplicates, invitationsSent: 0 });
+    }
+
     // Collect emails that are missing name or team so we can enrich from the directory
     const needsLookup = new Set<string>();
-    participants.forEach((p) => {
+    newParticipants.forEach((p) => {
       if (!p.evaluatorName?.trim()) needsLookup.add(p.evaluatorEmail.trim().toLowerCase());
       if (!p.evaluateeName?.trim() || !p.team?.trim()) needsLookup.add(p.evaluateeEmail.trim().toLowerCase());
     });
@@ -119,7 +136,7 @@ export async function POST(request: Request, { params }: Ctx) {
     };
 
     const created = await prisma.evaluation360Assignment.createMany({
-      data: participants.map((p) => {
+      data: newParticipants.map((p) => {
         const evtorEmail = p.evaluatorEmail.trim().toLowerCase();
         const evalEmail  = p.evaluateeEmail.trim().toLowerCase();
         return {
@@ -137,8 +154,9 @@ export async function POST(request: Request, { params }: Ctx) {
     });
 
     if (sendInvitation) {
+      // Solo se invita a evaluadores con filas realmente nuevas
       const uniqueEvaluators = new Map<string, string>();
-      participants.forEach((p) => {
+      newParticipants.forEach((p) => {
         uniqueEvaluators.set(p.evaluatorEmail.toLowerCase(), p.evaluatorName || p.evaluatorEmail);
       });
 
@@ -179,12 +197,13 @@ export async function POST(request: Request, { params }: Ctx) {
       }
       return NextResponse.json({
         created: created.count,
+        duplicates,
         invitationsSent,
         invitationErrors: invitationErrors.length ? invitationErrors : undefined,
       });
     }
 
-    return NextResponse.json({ created: created.count });
+    return NextResponse.json({ created: created.count, duplicates });
   } catch (error) {
     console.error("[POST participants]", error);
     return NextResponse.json({ error: "Error interno" }, { status: 500 });
