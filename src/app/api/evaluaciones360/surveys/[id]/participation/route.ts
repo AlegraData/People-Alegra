@@ -78,6 +78,23 @@ export async function GET(_req: Request, { params }: Ctx) {
     const resolveName = (email: string, stored: string | null) =>
       stored || nameMap.get(email) || null;
 
+    // Equipo de cada persona (evaluada o evaluadora): match contra el directorio
+    // de empleados, más fresco que el `team` guardado por asignación (que además
+    // solo se guarda del lado del evaluado). Cae al team guardado como respaldo.
+    const allEmails = [...new Set(assignments.flatMap((a) => [a.evaluatorEmail, a.evaluateeEmail]))];
+    const { data: teamRows } = allEmails.length > 0
+      ? await supabaseAdmin.from("v_empleados_activos_completa").select("correo, equipo").in("correo", allEmails)
+      : { data: [] };
+    const teamMap = new Map(
+      (teamRows ?? []).map((r: { correo: string; equipo: string | null }) => [r.correo, r.equipo ?? null])
+    );
+    const storedTeamMap = new Map<string, string>();
+    assignments.forEach((a) => {
+      if (a.team && !storedTeamMap.has(a.evaluateeEmail)) storedTeamMap.set(a.evaluateeEmail, a.team);
+    });
+    const resolveTeam = (email: string): string | null =>
+      teamMap.get(email) ?? storedTeamMap.get(email) ?? null;
+
     const total          = assignments.length;
     const submittedList  = assignments.filter((a) => a.status === "submitted");
     const submittedCount = submittedList.length;
@@ -98,16 +115,33 @@ export async function GET(_req: Request, { params }: Ctx) {
       return { date, daily: byDay.get(date)!, cumulative: cum };
     });
 
-    // By team
-    const teamMap = new Map<string, { total: number; submitted: number }>();
+    // By team (del evaluado)
+    const teamAggMap = new Map<string, { total: number; submitted: number }>();
     assignments.forEach((a) => {
-      const t = a.team || "Sin equipo";
-      if (!teamMap.has(t)) teamMap.set(t, { total: 0, submitted: 0 });
-      const e = teamMap.get(t)!;
+      const t = resolveTeam(a.evaluateeEmail) || "Sin equipo";
+      if (!teamAggMap.has(t)) teamAggMap.set(t, { total: 0, submitted: 0 });
+      const e = teamAggMap.get(t)!;
       e.total++;
       if (a.status === "submitted") e.submitted++;
     });
-    const byTeam = [...teamMap.entries()]
+    const byTeam = [...teamAggMap.entries()]
+      .map(([team, { total: t, submitted: s }]) => ({
+        team, total: t, submitted: s, pending: t - s,
+        rate: t > 0 ? Math.round((s / t) * 100) : 0,
+      }))
+      .sort((a, b) => b.rate - a.rate);
+
+    // By team (del evaluador) — qué tan al día está cada equipo HACIENDO sus evaluaciones,
+    // en vez de recibiéndolas.
+    const teamAggMapEvaluator = new Map<string, { total: number; submitted: number }>();
+    assignments.forEach((a) => {
+      const t = resolveTeam(a.evaluatorEmail) || "Sin equipo";
+      if (!teamAggMapEvaluator.has(t)) teamAggMapEvaluator.set(t, { total: 0, submitted: 0 });
+      const e = teamAggMapEvaluator.get(t)!;
+      e.total++;
+      if (a.status === "submitted") e.submitted++;
+    });
+    const byTeamEvaluator = [...teamAggMapEvaluator.entries()]
       .map(([team, { total: t, submitted: s }]) => ({
         team, total: t, submitted: s, pending: t - s,
         rate: t > 0 ? Math.round((s / t) * 100) : 0,
@@ -120,7 +154,7 @@ export async function GET(_req: Request, { params }: Ctx) {
       if (!evalMap.has(a.evaluateeEmail))
         evalMap.set(a.evaluateeEmail, {
           name: resolveName(a.evaluateeEmail, a.evaluateeName),
-          team: a.team,
+          team: resolveTeam(a.evaluateeEmail),
           total: 0, received: 0,
         });
       const e = evalMap.get(a.evaluateeEmail)!;
@@ -134,11 +168,12 @@ export async function GET(_req: Request, { params }: Ctx) {
       .sort((a, b) => b.pending - a.pending || a.email.localeCompare(b.email));
 
     // By evaluator
-    const evtorMap = new Map<string, { name: string | null; total: number; submitted: number }>();
+    const evtorMap = new Map<string, { name: string | null; team: string | null; total: number; submitted: number }>();
     assignments.forEach((a) => {
       if (!evtorMap.has(a.evaluatorEmail))
         evtorMap.set(a.evaluatorEmail, {
           name: resolveName(a.evaluatorEmail, a.evaluatorName),
+          team: resolveTeam(a.evaluatorEmail),
           total: 0, submitted: 0,
         });
       const e = evtorMap.get(a.evaluatorEmail)!;
@@ -146,8 +181,8 @@ export async function GET(_req: Request, { params }: Ctx) {
       if (a.status === "submitted") e.submitted++;
     });
     const evaluators = [...evtorMap.entries()]
-      .map(([email, { name, total: t, submitted: s }]) => ({
-        email, name, total: t, submitted: s, pending: t - s,
+      .map(([email, { name, team, total: t, submitted: s }]) => ({
+        email, name, team, total: t, submitted: s, pending: t - s,
       }))
       .sort((a, b) => b.pending - a.pending || a.email.localeCompare(b.email));
 
@@ -158,6 +193,7 @@ export async function GET(_req: Request, { params }: Ctx) {
       completionRate,
       timeline,
       byTeam,
+      byTeamEvaluator,
       evaluatees,
       evaluators,
     });

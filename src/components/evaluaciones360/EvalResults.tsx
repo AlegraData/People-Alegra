@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
-import { ArrowLeft, Download, BarChart2, ChevronDown, ChevronRight, Users, Search, X } from "lucide-react";
+import { ArrowLeft, Download, BarChart2, ChevronDown, ChevronRight, Users, Search, X, Filter } from "lucide-react";
 import * as XLSX from "xlsx";
 import type { Evaluation360, Eval360Question, EvalType } from "@/types/evaluaciones360";
 import { EVAL_TYPE_LABELS, EVAL_TYPE_COLORS } from "@/types/evaluaciones360";
@@ -22,6 +22,7 @@ interface EvaluateeResult {
   evaluateeEmail: string;
   evaluateeName:  string;
   avatarUrl:      string | null;
+  team:           string | null;
   overallScore:   number;
   totalSubmitted: number;
   byType:         Partial<Record<EvalType, TypeResult>>;
@@ -106,8 +107,9 @@ export default function EvalResults({ evaluation, onBack }: Props) {
   const [resultsTab, setResultsTab] = useState<ResultsTab>("scores");
 
   // List state
-  const [search, setSearch] = useState("");
-  const [page, setPage]     = useState(1);
+  const [search, setSearch]         = useState("");
+  const [filterTeam, setFilterTeam] = useState("all");
+  const [page, setPage]             = useState(1);
 
   // Detail state
   const [selected, setSelected]           = useState<EvaluateeResult | null>(null);
@@ -157,18 +159,25 @@ export default function EvalResults({ evaluation, onBack }: Props) {
   };
 
   // ── Filtered + paginated list ─────────────────────────────────────────────
+  const teams = useMemo(
+    () => [...new Set((data?.results ?? []).map((r) => r.team).filter(Boolean) as string[])].sort(),
+    [data],
+  );
+
   const filtered = useMemo(() => {
     if (!data) return [];
     const q = search.trim().toLowerCase();
-    if (!q) return data.results;
-    return data.results.filter(
-      (r) =>
+    return data.results.filter((r) => {
+      const matchesTeam = filterTeam === "all" || r.team === filterTeam;
+      const matchesQuery = !q ||
         (r.evaluateeName || "").toLowerCase().includes(q) ||
-        r.evaluateeEmail.toLowerCase().includes(q)
-    );
-  }, [data, search]);
+        r.evaluateeEmail.toLowerCase().includes(q) ||
+        (r.team || "").toLowerCase().includes(q);
+      return matchesTeam && matchesQuery;
+    });
+  }, [data, search, filterTeam]);
 
-  useEffect(() => setPage(1), [search]);
+  useEffect(() => setPage(1), [search, filterTeam]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paginated  = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -179,7 +188,7 @@ export default function EvalResults({ evaluation, onBack }: Props) {
     const exportTypes = (["ascendente", "descendente", "paralela", "autoevaluacion"] as EvalType[]).filter(
       (t) => (data.evaluation.typeWeights[t] ?? 0) > 0
     );
-    const headers: string[] = ["Evaluado", "Correo", "Score Global", "Total Evaluaciones"];
+    const headers: string[] = ["Evaluado", "Correo", "Equipo", "Score Global", "Total Evaluaciones"];
     exportTypes.forEach((type) => {
       const label  = EVAL_TYPE_LABELS[type];
       const typeQs = (data.questionsMap[type] ?? []).filter((q) => q.type === "rating");
@@ -193,6 +202,7 @@ export default function EvalResults({ evaluation, onBack }: Props) {
       const row: Record<string, unknown> = {
         "Evaluado": r.evaluateeName || r.evaluateeEmail,
         "Correo": r.evaluateeEmail,
+        "Equipo": r.team || "",
         "Score Global": r.overallScore,
         "Total Evaluaciones": r.totalSubmitted,
       };
@@ -246,9 +256,16 @@ export default function EvalResults({ evaluation, onBack }: Props) {
               {selected.evaluateeName || selected.evaluateeEmail}
             </h3>
             <p className="text-sm text-[#64748b] truncate">{selected.evaluateeEmail}</p>
-            <p className="text-xs text-[#94a3b8] mt-1">
-              {selected.totalSubmitted} evaluaci{selected.totalSubmitted !== 1 ? "ones" : "ón"} recibida{selected.totalSubmitted !== 1 ? "s" : ""}
-            </p>
+            <div className="flex items-center gap-2 flex-wrap mt-1">
+              {selected.team && (
+                <span className="text-[11px] font-bold bg-primary/10 text-primary px-2.5 py-1 rounded-full">
+                  {selected.team}
+                </span>
+              )}
+              <p className="text-xs text-[#94a3b8]">
+                {selected.totalSubmitted} evaluaci{selected.totalSubmitted !== 1 ? "ones" : "ón"} recibida{selected.totalSubmitted !== 1 ? "s" : ""}
+              </p>
+            </div>
           </div>
           <div className="shrink-0 text-right">
             <p className="text-4xl font-black text-primary">{selected.overallScore.toFixed(1)}</p>
@@ -436,29 +453,45 @@ export default function EvalResults({ evaluation, onBack }: Props) {
 
           {data && data.results.length > 0 && (
             <>
-              {/* Search bar */}
-              <div className="relative">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#94a3b8]" />
-                <input
-                  type="text"
-                  placeholder="Buscar por nombre o correo…"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full pl-11 pr-10 py-3 rounded-2xl border border-slate-200 bg-white text-sm text-[#1e293b] placeholder:text-[#94a3b8] focus:outline-none focus:ring-2 focus:ring-primary/30 transition-shadow"
-                />
-                {search && (
-                  <button
-                    onClick={() => setSearch("")}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-[#94a3b8] hover:text-[#64748b]"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
+              {/* Search + team filter */}
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="relative flex-1 min-w-[220px]">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#94a3b8]" />
+                  <input
+                    type="text"
+                    placeholder="Buscar por nombre, correo o equipo…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="w-full pl-11 pr-10 py-3 rounded-2xl border border-slate-200 bg-white text-sm text-[#1e293b] placeholder:text-[#94a3b8] focus:outline-none focus:ring-2 focus:ring-primary/30 transition-shadow"
+                  />
+                  {search && (
+                    <button
+                      onClick={() => setSearch("")}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-[#94a3b8] hover:text-[#64748b]"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+                {teams.length > 1 && (
+                  <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-2xl px-3 py-2.5 shrink-0">
+                    <Filter className="w-4 h-4 text-[#94a3b8]" />
+                    <select
+                      value={filterTeam}
+                      onChange={(e) => setFilterTeam(e.target.value)}
+                      className="text-sm text-[#1e293b] bg-transparent outline-none cursor-pointer"
+                    >
+                      <option value="all">Todos los equipos</option>
+                      {teams.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
                 )}
               </div>
 
               <p className="text-xs text-[#94a3b8] px-1">
                 {filtered.length} evaluado{filtered.length !== 1 ? "s" : ""}
                 {search ? ` que coinciden con "${search}"` : ""}
+                {filterTeam !== "all" ? ` · equipo "${filterTeam}"` : ""}
               </p>
 
               {/* Cards list */}
@@ -475,9 +508,16 @@ export default function EvalResults({ evaluation, onBack }: Props) {
                       size="md"
                     />
                     <div className="flex-1 min-w-0">
-                      <p className="font-bold text-[#1e293b] truncate">
-                        {r.evaluateeName || r.evaluateeEmail}
-                      </p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-bold text-[#1e293b] truncate">
+                          {r.evaluateeName || r.evaluateeEmail}
+                        </p>
+                        {r.team && (
+                          <span className="text-[10px] font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-full shrink-0">
+                            {r.team}
+                          </span>
+                        )}
+                      </div>
                       <p className="text-xs text-[#94a3b8] truncate">
                         {r.evaluateeName ? `${r.evaluateeEmail} · ` : ""}
                         {r.totalSubmitted} evaluaci{r.totalSubmitted !== 1 ? "ones" : "ón"} recibida{r.totalSubmitted !== 1 ? "s" : ""}

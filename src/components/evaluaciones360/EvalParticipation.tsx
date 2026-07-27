@@ -6,7 +6,7 @@ import {
   AreaChart, Area,
 } from "recharts";
 import {
-  Users, CheckCircle2, Clock, TrendingUp, Filter,
+  Users, CheckCircle2, Clock, TrendingUp, Filter, Search, X,
   ChevronLeft, ChevronRight, Send, Inbox, UserCheck,
 } from "lucide-react";
 
@@ -16,9 +16,10 @@ interface ParticipationData {
   pendingCount:     number;
   completionRate:   number;
   timeline:   { date: string; daily: number; cumulative: number }[];
-  byTeam:     { team: string; total: number; submitted: number; pending: number; rate: number }[];
+  byTeam:          { team: string; total: number; submitted: number; pending: number; rate: number }[];
+  byTeamEvaluator: { team: string; total: number; submitted: number; pending: number; rate: number }[];
   evaluatees: { email: string; name: string | null; team: string | null; total: number; received: number; pending: number }[];
-  evaluators: { email: string; name: string | null; total: number; submitted: number; pending: number }[];
+  evaluators: { email: string; name: string | null; team: string | null; total: number; submitted: number; pending: number }[];
 }
 
 interface Props { evaluationId: string }
@@ -133,6 +134,7 @@ export default function EvalParticipation({ evaluationId }: Props) {
   const [data, setData]         = useState<ParticipationData | null>(null);
   const [loading, setLoading]   = useState(true);
   const [filterTeam, setFilterTeam] = useState("all");
+  const [search, setSearch]     = useState("");
   const [tableTab, setTableTab] = useState<"evaluatees" | "evaluators">("evaluatees");
   const [pageEvaluatee, setPageEvaluatee] = useState(1);
   const [pageEvaluator, setPageEvaluator] = useState(1);
@@ -146,20 +148,35 @@ export default function EvalParticipation({ evaluationId }: Props) {
       .finally(() => setLoading(false));
   }, [evaluationId]);
 
-  const teams = useMemo(
-    () => [...new Set((data?.evaluatees ?? []).map((e) => e.team).filter(Boolean) as string[])].sort(),
-    [data],
-  );
+  const teams = useMemo(() => {
+    const all = [...(data?.evaluatees ?? []).map((e) => e.team), ...(data?.evaluators ?? []).map((e) => e.team)];
+    return [...new Set(all.filter(Boolean) as string[])].sort();
+  }, [data]);
+
+  const q = search.trim().toLowerCase();
+  const matchesQuery = (e: { name: string | null; email: string; team: string | null }) =>
+    !q ||
+    (e.name ?? "").toLowerCase().includes(q) ||
+    e.email.toLowerCase().includes(q) ||
+    (e.team ?? "").toLowerCase().includes(q);
 
   const filteredEvaluatees = useMemo(
     () =>
-      filterTeam === "all"
-        ? (data?.evaluatees ?? [])
-        : (data?.evaluatees ?? []).filter((e) => e.team === filterTeam),
-    [data, filterTeam],
+      (data?.evaluatees ?? []).filter(
+        (e) => (filterTeam === "all" || e.team === filterTeam) && matchesQuery(e)
+      ),
+    [data, filterTeam, q],
   );
 
-  useEffect(() => setPageEvaluatee(1), [filterTeam]);
+  const filteredEvaluators = useMemo(
+    () =>
+      (data?.evaluators ?? []).filter(
+        (e) => (filterTeam === "all" || e.team === filterTeam) && matchesQuery(e)
+      ),
+    [data, filterTeam, q],
+  );
+
+  useEffect(() => { setPageEvaluatee(1); setPageEvaluator(1); }, [filterTeam, search]);
 
   const timelineData = useMemo(
     () =>
@@ -170,6 +187,8 @@ export default function EvalParticipation({ evaluationId }: Props) {
       })),
     [data],
   );
+
+  const isEvaluatorView = tableTab === "evaluators";
 
   const teamData = useMemo(
     () =>
@@ -191,16 +210,38 @@ export default function EvalParticipation({ evaluationId }: Props) {
     [data],
   );
 
+  const teamDataEvaluator = useMemo(
+    () =>
+      (data?.byTeamEvaluator ?? []).map(({ team, total, submitted, pending }) => ({
+        name:        team.length > 26 ? team.slice(0, 24) + "…" : team,
+        "Enviadas":  submitted,
+        "Pendientes": pending,
+        total,
+      })),
+    [data],
+  );
+
+  const teamRateDataEvaluator = useMemo(
+    () =>
+      (data?.byTeamEvaluator ?? []).map(({ team, rate }) => ({
+        name:           team.length > 26 ? team.slice(0, 24) + "…" : team,
+        "% completado": rate,
+      })),
+    [data],
+  );
+
+  const activeTeamData     = isEvaluatorView ? teamDataEvaluator     : teamData;
+  const activeTeamRateData = isEvaluatorView ? teamRateDataEvaluator : teamRateData;
+
   const donutData = [
     { name: "Enviadas",   value: data?.submittedCount ?? 0 },
     { name: "Pendientes", value: data?.pendingCount   ?? 0 },
   ];
 
-  const evaluators        = data?.evaluators ?? [];
   const totalPagesEval    = Math.max(1, Math.ceil(filteredEvaluatees.length / PAGE_SIZE));
-  const totalPagesEvtor   = Math.max(1, Math.ceil(evaluators.length       / PAGE_SIZE));
+  const totalPagesEvtor   = Math.max(1, Math.ceil(filteredEvaluators.length / PAGE_SIZE));
   const pagedEvaluatees   = filteredEvaluatees.slice((pageEvaluatee - 1) * PAGE_SIZE, pageEvaluatee * PAGE_SIZE);
-  const pagedEvaluators   = evaluators.slice((pageEvaluator - 1) * PAGE_SIZE, pageEvaluator * PAGE_SIZE);
+  const pagedEvaluators   = filteredEvaluators.slice((pageEvaluator - 1) * PAGE_SIZE, pageEvaluator * PAGE_SIZE);
   const rate              = data?.completionRate ?? 0;
 
   // ── Loading ───────────────────────────────────────────────────────────────
@@ -227,38 +268,52 @@ export default function EvalParticipation({ evaluationId }: Props) {
   return (
     <div className="space-y-6">
 
-      {/* Team filter */}
-      {teams.length > 1 && (
-        <div className="flex flex-wrap items-center gap-3 bg-slate-50 rounded-2xl p-4 border border-slate-100">
-          <div className="flex items-center gap-2 text-[#64748b] shrink-0">
-            <Filter className="w-4 h-4" />
-            <span className="text-sm font-semibold">Filtrar tablas</span>
-          </div>
-          <select
-            value={filterTeam}
-            onChange={(e) => setFilterTeam(e.target.value)}
-            className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-[#1e293b] focus:outline-none focus:ring-2 focus:ring-primary/30 cursor-pointer"
-          >
-            <option value="all">Todos los equipos</option>
-            {teams.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
-          {filterTeam !== "all" && (
-            <button
-              onClick={() => setFilterTeam("all")}
-              className="text-xs text-[#64748b] hover:text-[#1e293b] transition-colors font-medium"
-            >
-              Limpiar
+      {/* Buscar + filtrar tablas (aplica a Falta por recibir y Falta por hacer) */}
+      <div className="flex flex-wrap items-center gap-3 bg-slate-50 rounded-2xl p-4 border border-slate-100">
+        <div className="relative flex-1 min-w-[220px]">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#94a3b8]" />
+          <input
+            type="text"
+            placeholder="Buscar por nombre, correo o equipo…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-10 pr-9 py-2.5 rounded-xl border border-slate-200 bg-white text-sm text-[#1e293b] placeholder:text-[#94a3b8] focus:outline-none focus:ring-2 focus:ring-primary/30 transition-shadow"
+          />
+          {search && (
+            <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#94a3b8] hover:text-[#64748b]">
+              <X className="w-4 h-4" />
             </button>
           )}
         </div>
-      )}
+        {teams.length > 1 && (
+          <div className="flex items-center gap-2 text-[#64748b] shrink-0">
+            <Filter className="w-4 h-4" />
+            <select
+              value={filterTeam}
+              onChange={(e) => setFilterTeam(e.target.value)}
+              className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-[#1e293b] focus:outline-none focus:ring-2 focus:ring-primary/30 cursor-pointer"
+            >
+              <option value="all">Todos los equipos</option>
+              {teams.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+        )}
+        {(filterTeam !== "all" || search) && (
+          <button
+            onClick={() => { setFilterTeam("all"); setSearch(""); }}
+            className="text-xs text-[#64748b] hover:text-[#1e293b] transition-colors font-medium shrink-0"
+          >
+            Limpiar
+          </button>
+        )}
+      </div>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-4">
         <KpiCard
           icon={<UserCheck className="w-5 h-5" />}
           label="Participantes"
-          value={evaluators.length}
+          value={(data.evaluators ?? []).length}
           sub={`${(data.evaluatees ?? []).length} evaluado${(data.evaluatees ?? []).length !== 1 ? "s" : ""}`}
           color="#8b5cf6"
         />
@@ -364,13 +419,29 @@ export default function EvalParticipation({ evaluationId }: Props) {
 
       </div>
 
-      {/* Team charts */}
-      {teamData.length > 1 && (
-        <div className="grid md:grid-cols-2 gap-6">
+      {/* Team charts — reflejan la misma perspectiva que la tabla activa (evaluado / evaluador) */}
+      {activeTeamData.length > 1 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 px-1">
+            <span className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full ${
+              isEvaluatorView ? "bg-amber-100 text-amber-700" : "bg-primary/10 text-primary"
+            }`}>
+              {isEvaluatorView ? <Send className="w-3 h-3" /> : <Inbox className="w-3 h-3" />}
+              Vista por {isEvaluatorView ? "evaluador" : "evaluado"} — cambia con la pestaña de la tabla de abajo
+            </span>
+          </div>
+          <div className="grid md:grid-cols-2 gap-6">
 
-          <ChartCard title="Evaluaciones por Equipo" subtitle="Enviadas vs. Pendientes por equipo de evaluado">
-            <ResponsiveContainer width="100%" height={Math.max(180, teamData.length * 44)}>
-              <BarChart data={teamData} layout="vertical" margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
+          <ChartCard
+            title={isEvaluatorView ? "A quién le falta hacer, por equipo" : "Evaluaciones por Equipo"}
+            subtitle={
+              isEvaluatorView
+                ? "Enviadas vs. pendientes, por el equipo del evaluador"
+                : "Enviadas vs. Pendientes por equipo de evaluado"
+            }
+          >
+            <ResponsiveContainer width="100%" height={Math.max(180, activeTeamData.length * 44)}>
+              <BarChart data={activeTeamData} layout="vertical" margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
                 <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10, fill: "#94a3b8" }} />
                 <YAxis type="category" dataKey="name" width={150} tick={{ fontSize: 11, fill: "#1e293b" }} />
@@ -383,9 +454,16 @@ export default function EvalParticipation({ evaluationId }: Props) {
             </ResponsiveContainer>
           </ChartCard>
 
-          <ChartCard title="% Completado por Equipo" subtitle="Ordenado de mayor a menor">
-            <ResponsiveContainer width="100%" height={Math.max(180, teamRateData.length * 44)}>
-              <BarChart data={teamRateData} layout="vertical" margin={{ top: 0, right: 52, left: 0, bottom: 0 }}>
+          <ChartCard
+            title={isEvaluatorView ? "% Completado por Equipo (evaluador)" : "% Completado por Equipo"}
+            subtitle={
+              isEvaluatorView
+                ? "Qué tan al día está cada equipo haciendo sus evaluaciones"
+                : "Ordenado de mayor a menor"
+            }
+          >
+            <ResponsiveContainer width="100%" height={Math.max(180, activeTeamRateData.length * 44)}>
+              <BarChart data={activeTeamRateData} layout="vertical" margin={{ top: 0, right: 52, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
                 <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 10, fill: "#94a3b8" }}
                   tickFormatter={(v) => `${v}%`} />
@@ -402,6 +480,7 @@ export default function EvalParticipation({ evaluationId }: Props) {
             </ResponsiveContainer>
           </ChartCard>
 
+          </div>
         </div>
       )}
 
@@ -437,9 +516,9 @@ export default function EvalParticipation({ evaluationId }: Props) {
             >
               <Send className="w-4 h-4" />
               Falta por hacer
-              {evaluators.filter((e) => e.pending > 0).length > 0 && (
+              {filteredEvaluators.filter((e) => e.pending > 0).length > 0 && (
                 <span className="bg-amber-100 text-amber-700 text-[10px] font-black px-1.5 py-0.5 rounded-full leading-none">
-                  {evaluators.filter((e) => e.pending > 0).length}
+                  {filteredEvaluators.filter((e) => e.pending > 0).length}
                 </span>
               )}
             </button>
@@ -527,6 +606,7 @@ export default function EvalParticipation({ evaluationId }: Props) {
                 <thead>
                   <tr className="bg-slate-50 text-left">
                     <th className="px-5 py-3 text-[11px] font-semibold text-[#64748b] uppercase tracking-wide">Evaluador</th>
+                    <th className="px-5 py-3 text-[11px] font-semibold text-[#64748b] uppercase tracking-wide">Equipo</th>
                     <th className="px-5 py-3 text-[11px] font-semibold text-[#64748b] uppercase tracking-wide text-center">Enviadas</th>
                     <th className="px-5 py-3 text-[11px] font-semibold text-[#64748b] uppercase tracking-wide text-center">Pendientes</th>
                     <th className="px-5 py-3 text-[11px] font-semibold text-[#64748b] uppercase tracking-wide text-center">Total</th>
@@ -543,6 +623,9 @@ export default function EvalParticipation({ evaluationId }: Props) {
                         <td className="px-5 py-3">
                           <p className="font-semibold text-[#1e293b]">{e.name || e.email}</p>
                           <p className="text-xs text-[#94a3b8]">{e.email}</p>
+                        </td>
+                        <td className="px-5 py-3 text-[#64748b]">
+                          {e.team ?? <span className="text-[#cbd5e1]">—</span>}
                         </td>
                         <td className="px-5 py-3 text-center">
                           <span className="font-bold text-emerald-600">{e.submitted}</span>
@@ -582,8 +665,8 @@ export default function EvalParticipation({ evaluationId }: Props) {
                   })}
                   {pagedEvaluators.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-5 py-10 text-center text-sm text-[#94a3b8]">
-                        No hay evaluadores registrados.
+                      <td colSpan={7} className="px-5 py-10 text-center text-sm text-[#94a3b8]">
+                        No hay evaluadores con los filtros actuales.
                       </td>
                     </tr>
                   )}
@@ -593,7 +676,7 @@ export default function EvalParticipation({ evaluationId }: Props) {
             {totalPagesEvtor > 1 && (
               <div className="px-5 py-4 border-t border-slate-100 flex items-center justify-between gap-4">
                 <p className="text-xs text-[#94a3b8]">
-                  {(pageEvaluator - 1) * PAGE_SIZE + 1}–{Math.min(pageEvaluator * PAGE_SIZE, evaluators.length)} de {evaluators.length}
+                  {(pageEvaluator - 1) * PAGE_SIZE + 1}–{Math.min(pageEvaluator * PAGE_SIZE, filteredEvaluators.length)} de {filteredEvaluators.length}
                 </p>
                 <Pagination page={pageEvaluator} total={totalPagesEvtor} onChange={setPageEvaluator} />
               </div>

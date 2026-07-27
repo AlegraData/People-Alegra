@@ -142,12 +142,27 @@ export async function GET(_req: Request, { params }: Ctx) {
       (avatarRows ?? []).map((r: { email: string; avatar_url: string | null }) => [r.email, r.avatar_url ?? null])
     );
 
+    // Equipo: match contra el directorio de empleados (fuente de verdad, más
+    // fresca que el `team` guardado en la asignación al momento de crearla).
+    // Si la persona ya no está activa en el directorio, se cae al team guardado.
+    const { data: teamRows } = evaluateeEmails.length > 0
+      ? await supabaseAdmin.from("v_empleados_activos_completa").select("correo, equipo").in("correo", evaluateeEmails)
+      : { data: [] };
+    const teamMap = new Map(
+      (teamRows ?? []).map((r: { correo: string; equipo: string | null }) => [r.correo, r.equipo ?? null])
+    );
+    const storedTeamMap = new Map<string, string | null>();
+    submitted.forEach((a) => {
+      if (a.team && !storedTeamMap.has(a.evaluateeEmail)) storedTeamMap.set(a.evaluateeEmail, a.team);
+    });
+
     return NextResponse.json({
       evaluation: { id, title: evaluation.title, status: evaluation.status, typeWeights },
       questionsMap,
       results: evaluateeResults.map((r) => ({
         ...r,
         avatarUrl: avatarMap.get(r.evaluateeEmail) ?? null,
+        team: teamMap.get(r.evaluateeEmail) ?? storedTeamMap.get(r.evaluateeEmail) ?? null,
       })),
     });
   } catch (error) {
