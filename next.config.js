@@ -38,6 +38,12 @@ const nextConfig = {
   // No revelar el framework en el header `x-powered-by`.
   poweredByHeader: false,
   async headers() {
+    // Estos headers son solo para producción (HTTPS real). En dev rompen dos cosas:
+    // - Strict-Transport-Security queda cacheado por el navegador para "localhost"
+    //   y fuerza HTTPS ahí para siempre (ERR_SSL_PROTOCOL_ERROR en cualquier puerto).
+    // - La CSP sin 'unsafe-eval' bloquea el runtime de desarrollo (HMR/Turbopack),
+    //   dejando la app en blanco.
+    if (process.env.NODE_ENV !== 'production') return [];
     return [
       {
         source: '/:path*',

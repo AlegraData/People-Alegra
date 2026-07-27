@@ -103,6 +103,7 @@ export interface Evaluation360Assignment {
   evaluationId: string;
   evaluatorEmail: string;
   evaluatorName?: string | null;
+  evaluatorAvatarUrl?: string | null;
   evaluateeEmail: string;
   evaluateeName?: string | null;
   evaluateeAvatarUrl?: string | null;

@@ -66,7 +66,8 @@ export default function EvalParticipants({ evaluation, onBack }: Props) {
   const [assignments, setAssignments]   = useState<Evaluation360Assignment[]>([]);
   const [loading, setLoading]           = useState(true);
   const [showAdd, setShowAdd]           = useState(false);
-  const [selectedEmail, setSelectedEmail] = useState<string | null>(null);
+  const [viewMode, setViewMode]         = useState<"evaluatee" | "evaluator">("evaluatee");
+  const [selected, setSelected]         = useState<{ email: string; mode: "evaluatee" | "evaluator" } | null>(null);
   const [search, setSearch]             = useState("");
   const [page, setPage]                 = useState(1);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -267,6 +268,38 @@ export default function EvalParticipants({ evaluation, onBack }: Props) {
     return map;
   }, [assignments]);
 
+  // El equipo solo se guarda del lado del evaluado; para mostrarlo también en las
+  // tarjetas de evaluador, lo tomamos de cualquier fila donde esa persona figure como evaluada.
+  const teamByEmail = useMemo(() => {
+    const map = new Map<string, string>();
+    assignments.forEach((a) => {
+      const team = (a as { team?: string | null }).team;
+      if (team && !map.has(a.evaluateeEmail)) map.set(a.evaluateeEmail, team);
+    });
+    return map;
+  }, [assignments]);
+
+  // Vista invertida: qué le falta evaluar a cada evaluador y si ya terminó.
+  const byEvaluator = useMemo(() => {
+    const map = new Map<string, { name: string; team: string | null; avatarUrl: string | null; byType: Map<EvalType, Evaluation360Assignment[]> }>();
+    assignments.forEach((a) => {
+      if (!map.has(a.evaluatorEmail)) {
+        map.set(a.evaluatorEmail, {
+          name: a.evaluatorName || a.evaluatorEmail,
+          team: teamByEmail.get(a.evaluatorEmail) ?? null,
+          avatarUrl: a.evaluatorAvatarUrl ?? null,
+          byType: new Map(),
+        });
+      }
+      const row = map.get(a.evaluatorEmail)!;
+      if (!row.byType.has(a.evaluationType as EvalType)) row.byType.set(a.evaluationType as EvalType, []);
+      row.byType.get(a.evaluationType as EvalType)!.push(a);
+    });
+    return map;
+  }, [assignments, teamByEmail]);
+
+  const currentMap = viewMode === "evaluatee" ? byEvaluatee : byEvaluator;
+
   const uniqueEvaluators = useMemo(
     () => new Set(assignments.map((a) => a.evaluatorEmail)).size,
     [assignments]
@@ -277,56 +310,62 @@ export default function EvalParticipants({ evaluation, onBack }: Props) {
   // ── Search + pagination ───────────────────────────────────────────────────────
   const filteredEntries = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const entries = Array.from(byEvaluatee.entries());
+    const entries = Array.from(currentMap.entries());
     if (!q) return entries;
     return entries.filter(([email, row]) =>
       email.toLowerCase().includes(q) ||
       row.name.toLowerCase().includes(q) ||
       (row.team ?? "").toLowerCase().includes(q)
     );
-  }, [byEvaluatee, search]);
+  }, [currentMap, search]);
 
-  useEffect(() => setPage(1), [search]);
+  useEffect(() => setPage(1), [search, viewMode]);
 
   const totalPages = Math.max(1, Math.ceil(filteredEntries.length / PAGE_SIZE));
   const paged      = filteredEntries.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   // ── DETAIL VIEW ───────────────────────────────────────────────────────────────
-  if (selectedEmail) {
-    const row = byEvaluatee.get(selectedEmail);
-    if (!row) { setSelectedEmail(null); return null; }
+  if (selected) {
+    const { email: selectedEmail, mode: selectedMode } = selected;
+    const row = (selectedMode === "evaluatee" ? byEvaluatee : byEvaluator).get(selectedEmail);
+    if (!row) { setSelected(null); return null; }
+    const isEvaluatorView = selectedMode === "evaluator";
+    const allForPerson = Array.from(row.byType.values()).flat();
+    const sent    = allForPerson.filter((a) => a.status === "submitted").length;
+    const pending = allForPerson.length - sent;
     return (
       <div className="space-y-6">
         <button
-          onClick={() => setSelectedEmail(null)}
+          onClick={() => setSelected(null)}
           className="flex items-center gap-2 text-sm font-semibold text-[#64748b] hover:text-primary transition-colors"
         >
           <ArrowLeft className="w-4 h-4" /> Volver a participantes
         </button>
 
         {/* Person card */}
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 flex items-center gap-5">
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 flex items-center gap-5 flex-wrap">
           <AvatarCircle name={row.name} avatarUrl={row.avatarUrl} size="lg" />
           <div className="flex-1 min-w-0">
             <h3 className="text-xl font-black text-[#1e293b] truncate">{row.name}</h3>
             <p className="text-sm text-[#64748b]">{selectedEmail}</p>
-            {row.team && (
-              <span className="inline-block mt-1 text-[11px] font-bold bg-primary/10 text-primary px-2.5 py-1 rounded-full">
-                {row.team}
+            <div className="flex items-center gap-1.5 flex-wrap mt-1">
+              {row.team && (
+                <span className="text-[11px] font-bold bg-primary/10 text-primary px-2.5 py-1 rounded-full">
+                  {row.team}
+                </span>
+              )}
+              <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${
+                pending === 0 ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+              }`}>
+                {isEvaluatorView
+                  ? (pending === 0 ? "✅ Completó todas sus evaluaciones" : `⏳ Le faltan ${pending} evaluaciones por hacer`)
+                  : (pending === 0 ? "✅ Recibió todas las evaluaciones" : `⏳ Le faltan ${pending} evaluaciones por recibir`)}
               </span>
-            )}
+            </div>
           </div>
           <div className="shrink-0 text-right">
-            {(() => {
-              const allForEvaluatee = Array.from(row.byType.values()).flat();
-              const sent = allForEvaluatee.filter((a) => a.status === "submitted").length;
-              return (
-                <>
-                  <p className="text-2xl font-black text-primary">{sent}/{allForEvaluatee.length}</p>
-                  <p className="text-[10px] font-bold uppercase text-[#64748b]">enviadas</p>
-                </>
-              );
-            })()}
+            <p className="text-2xl font-black text-primary">{sent}/{allForPerson.length}</p>
+            <p className="text-[10px] font-bold uppercase text-[#64748b]">enviadas</p>
           </div>
         </div>
 
@@ -351,20 +390,24 @@ export default function EvalParticipants({ evaluation, onBack }: Props) {
                   {EVAL_TYPE_LABELS[type]}
                 </span>
                 <span className="text-xs text-[#94a3b8]">
-                  {typeAssignments.length} evaluador{typeAssignments.length !== 1 ? "es" : ""}
+                  {typeAssignments.length} {isEvaluatorView ? "evaluado" : "evaluador"}{typeAssignments.length !== 1 ? "es" : ""}
                 </span>
               </div>
               <div className="divide-y divide-slate-50">
                 {typeAssignments.map((a) => {
                   const st = STATUS_CONFIG[a.status] ?? STATUS_CONFIG.pending;
+                  // Contraparte a mostrar: si vemos el detalle de un evaluador, mostramos a quién evalúa; si es de un evaluado, a quién lo evalúa.
+                  const otherName   = isEvaluatorView ? (a.evaluateeName || a.evaluateeEmail) : (a.evaluatorName || a.evaluatorEmail);
+                  const otherEmail  = isEvaluatorView ? a.evaluateeEmail : a.evaluatorEmail;
+                  const otherAvatar = isEvaluatorView ? a.evaluateeAvatarUrl : a.evaluatorAvatarUrl;
                   return (
                     <div key={a.id} className="flex items-center gap-3 px-5 py-3">
-                      <AvatarCircle name={a.evaluatorName || a.evaluatorEmail} avatarUrl={(a as { evaluatorAvatarUrl?: string | null }).evaluatorAvatarUrl} size="sm" />
+                      <AvatarCircle name={otherName} avatarUrl={otherAvatar} size="sm" />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-[#1e293b] truncate">
-                          {a.evaluatorName || a.evaluatorEmail}
+                          {otherName}
                         </p>
-                        <p className="text-xs text-[#94a3b8] truncate">{a.evaluatorEmail}</p>
+                        <p className="text-xs text-[#94a3b8] truncate">{otherEmail}</p>
                       </div>
                       <span className={`inline-flex items-center gap-1 text-[10px] font-black uppercase px-2 py-1 rounded-full shrink-0 ${st.style}`}>
                         {st.icon} {st.label}
@@ -505,11 +548,36 @@ export default function EvalParticipants({ evaluation, onBack }: Props) {
         />
       )}
 
+      {/* Toggle: por evaluado (a quién evalúan) / por evaluador (qué le falta evaluar) */}
+      <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit">
+        <button
+          onClick={() => setViewMode("evaluatee")}
+          className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+            viewMode === "evaluatee" ? "bg-white text-[#1e293b] shadow-sm" : "text-[#64748b] hover:text-[#1e293b]"
+          }`}
+        >
+          Por evaluado
+        </button>
+        <button
+          onClick={() => setViewMode("evaluator")}
+          className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+            viewMode === "evaluator" ? "bg-white text-[#1e293b] shadow-sm" : "text-[#64748b] hover:text-[#1e293b]"
+          }`}
+        >
+          Por evaluador
+        </button>
+      </div>
+      <p className="text-xs text-[#94a3b8] -mt-4 px-1">
+        {viewMode === "evaluatee"
+          ? "Quién evalúa a cada persona y en qué va."
+          : "A quién le falta evaluar cada persona y si ya terminó."}
+      </p>
+
       {loading ? (
         <div className="flex justify-center py-12">
           <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
         </div>
-      ) : byEvaluatee.size === 0 ? (
+      ) : currentMap.size === 0 ? (
         <div className="bg-white rounded-[2rem] p-16 border border-slate-100 text-center">
           <p className="text-[#64748b] font-semibold">Sin participantes aún</p>
         </div>
@@ -520,7 +588,7 @@ export default function EvalParticipants({ evaluation, onBack }: Props) {
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#94a3b8]" />
             <input
               type="text"
-              placeholder="Buscar por nombre, correo o equipo…"
+              placeholder={viewMode === "evaluatee" ? "Buscar evaluado por nombre, correo o equipo…" : "Buscar evaluador por nombre, correo o equipo…"}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-11 pr-10 py-3 rounded-2xl border border-slate-200 bg-white text-sm text-[#1e293b] placeholder:text-[#94a3b8] focus:outline-none focus:ring-2 focus:ring-primary/30 transition-shadow"
@@ -533,11 +601,11 @@ export default function EvalParticipants({ evaluation, onBack }: Props) {
           </div>
 
           <p className="text-xs text-[#94a3b8] px-1">
-            {filteredEntries.length} evaluado{filteredEntries.length !== 1 ? "s" : ""}
+            {filteredEntries.length} {viewMode === "evaluatee" ? "evaluado" : "evaluador"}{filteredEntries.length !== 1 ? "es" : ""}
             {search ? ` que coinciden con "${search}"` : ""}
           </p>
 
-          {/* Evaluatee cards */}
+          {/* Person cards */}
           <div className="space-y-2">
             {paged.map(([email, row]) => {
               const allAssignments = Array.from(row.byType.values()).flat();
@@ -548,7 +616,7 @@ export default function EvalParticipants({ evaluation, onBack }: Props) {
               return (
                 <button
                   key={email}
-                  onClick={() => setSelectedEmail(email)}
+                  onClick={() => setSelected({ email, mode: viewMode })}
                   className="w-full bg-white rounded-2xl border border-slate-100 shadow-sm px-5 py-4 flex items-center gap-4 hover:border-primary/30 hover:shadow-md transition-all text-left group"
                 >
                   <AvatarCircle name={row.name} avatarUrl={row.avatarUrl} size="md" />
