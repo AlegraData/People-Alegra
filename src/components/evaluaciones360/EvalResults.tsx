@@ -197,21 +197,16 @@ export default function EvalResults({ evaluation, onBack }: Props) {
     const exportTypes = (["ascendente", "descendente", "paralela", "autoevaluacion"] as EvalType[]).filter(
       (t) => (data.evaluation.typeWeights[t] ?? 0) > 0
     );
+
+    // ── Hoja 1: Resultados (una fila por evaluado, scores promedio) ─────────
     const headers: string[] = ["Evaluado", "Correo", "Equipo", "Score Global", "Total Evaluaciones"];
     exportTypes.forEach((type) => {
       const label  = EVAL_TYPE_LABELS[type];
       const typeQs = (data.questionsMap[type] ?? []).filter((q) => q.type === "rating");
-      const openQs = (data.questionsMap[type] ?? []).filter((q) => q.type !== "rating");
       headers.push(`${label} - Score`, `${label} - Respuestas`);
       typeQs.forEach((q) => {
         const cat = q.category ? `[${q.category}] ` : "";
         headers.push(`${label} - ${cat}${q.text} (${q.weight}%)`);
-      });
-      // Preguntas abiertas: se anexan como columnas de texto, sin identificar
-      // al evaluador (mismo criterio de confidencialidad que el resto del export).
-      openQs.forEach((q) => {
-        const cat = q.category ? `[${q.category}] ` : "";
-        headers.push(`${label} - [Abierta] ${cat}${q.text}`);
       });
     });
     const rows = data.results.map((r) => {
@@ -226,27 +221,50 @@ export default function EvalResults({ evaluation, onBack }: Props) {
         const label  = EVAL_TYPE_LABELS[type];
         const tr     = r.byType[type];
         const typeQs = (data.questionsMap[type] ?? []).filter((q) => q.type === "rating");
-        const openQs = (data.questionsMap[type] ?? []).filter((q) => q.type !== "rating");
         row[`${label} - Score`]      = tr?.score          ?? "";
         row[`${label} - Respuestas`] = tr?.submittedCount ?? 0;
         typeQs.forEach((q) => {
           const cat = q.category ? `[${q.category}] ` : "";
           row[`${label} - ${cat}${q.text} (${q.weight}%)`] = tr?.questionScores[q.id]?.avg ?? "";
         });
-        openQs.forEach((q) => {
-          const cat = q.category ? `[${q.category}] ` : "";
-          const answers = tr?.openQuestions.find((oq) => oq.id === q.id)?.answers ?? [];
-          row[`${label} - [Abierta] ${cat}${q.text}`] = answers.length > 0
-            ? answers.map((a, i) => `${i + 1}. ${a}`).join("\n")
-            : "";
-        });
       });
       return row;
     });
     const aoa = [headers, ...rows.map((r) => headers.map((h) => r[h] ?? ""))];
-    const ws  = XLSX.utils.aoa_to_sheet(aoa);
-    const wb  = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Resultados");
+    const wsResultados = XLSX.utils.aoa_to_sheet(aoa);
+
+    // ── Hoja 2: Comentarios (una fila por cada comentario individual) ───────
+    // Anónimo: no se identifica al evaluador, mismo criterio de confidencialidad
+    // agregada que aplica al resto de esta vista.
+    const commentHeaders = ["Evaluado", "Correo", "Equipo", "Tipo de Evaluación", "Categoría", "Pregunta", "Comentario"];
+    const commentRows: (string | number)[][] = [];
+    data.results.forEach((r) => {
+      exportTypes.forEach((type) => {
+        const tr = r.byType[type];
+        if (!tr) return;
+        tr.openQuestions.forEach((oq) => {
+          oq.answers.forEach((answer) => {
+            commentRows.push([
+              r.evaluateeName || r.evaluateeEmail,
+              r.evaluateeEmail,
+              r.team || "",
+              EVAL_TYPE_LABELS[type],
+              oq.category || "",
+              oq.text,
+              answer,
+            ]);
+          });
+        });
+      });
+    });
+    const wsComentarios = XLSX.utils.aoa_to_sheet([commentHeaders, ...commentRows]);
+    wsComentarios["!cols"] = [
+      { wch: 28 }, { wch: 30 }, { wch: 20 }, { wch: 16 }, { wch: 16 }, { wch: 45 }, { wch: 70 },
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, wsResultados, "Resultados");
+    XLSX.utils.book_append_sheet(wb, wsComentarios, "Comentarios");
     XLSX.writeFile(wb, `resultados_360_${evaluation.title.replace(/\s+/g, "_")}.xlsx`);
   };
 
