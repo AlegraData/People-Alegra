@@ -59,24 +59,29 @@ export async function GET() {
       });
 
       // hasResponded para cuando el admin participa
-      let respondedIds = new Set<string>();
+      let myResponsesById = new Map<string, { score: number; followUpAnswer: string | null }>();
       const employee = await prisma.employee.findUnique({ where: { email: user.email! } });
       if (employee && surveyIds.length) {
         const mine = await prisma.enpsSurveyResponse.findMany({
           where: { employeeId: employee.id, surveyId: { in: surveyIds } },
-          select: { surveyId: true },
+          select: { surveyId: true, score: true, followUpAnswer: true },
         });
-        respondedIds = new Set(mine.map((r) => r.surveyId));
+        myResponsesById = new Map(mine.map((r) => [r.surveyId, { score: r.score, followUpAnswer: r.followUpAnswer }]));
       }
 
       return NextResponse.json(
-        surveys.map((s) => ({
-          ...s,
-          responsesCount:   s._count.responses,
-          assignmentsCount: s._count.assignments,
-          enpsScore:        computeEnps(scoresBySurvey.get(s.id) ?? [], s.scoreMax),
-          hasResponded:     respondedIds.has(s.id),
-        }))
+        surveys.map((s) => {
+          const myResponse = myResponsesById.get(s.id) ?? null;
+          const isComplete = !!myResponse && (!s.followUpRequired || !!myResponse.followUpAnswer?.trim());
+          return {
+            ...s,
+            responsesCount:   s._count.responses,
+            assignmentsCount: s._count.assignments,
+            enpsScore:        computeEnps(scoresBySurvey.get(s.id) ?? [], s.scoreMax),
+            hasResponded:     isComplete,
+            myResponse,
+          };
+        })
       );
     }
 
@@ -108,18 +113,23 @@ export async function GET() {
 
     const myResponses = await prisma.enpsSurveyResponse.findMany({
       where: { employeeId: employee.id, surveyId: { in: visibleIds } },
-      select: { surveyId: true },
+      select: { surveyId: true, score: true, followUpAnswer: true },
     });
-    const respondedIds = new Set(myResponses.map((r) => r.surveyId));
+    const myResponsesById = new Map(myResponses.map((r) => [r.surveyId, { score: r.score, followUpAnswer: r.followUpAnswer }]));
 
     return NextResponse.json(
-      visible.map((s) => ({
-        ...s,
-        responsesCount:   0,
-        assignmentsCount: 0,
-        enpsScore:        null,
-        hasResponded:     respondedIds.has(s.id),
-      }))
+      visible.map((s) => {
+        const myResponse = myResponsesById.get(s.id) ?? null;
+        const isComplete = !!myResponse && (!s.followUpRequired || !!myResponse.followUpAnswer?.trim());
+        return {
+          ...s,
+          responsesCount:   0,
+          assignmentsCount: 0,
+          enpsScore:        null,
+          hasResponded:     isComplete,
+          myResponse,
+        };
+      })
     );
   } catch (error) {
     console.error("[GET /api/enps/surveys]", error);

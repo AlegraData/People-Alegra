@@ -149,6 +149,7 @@ model EnpsSurvey {
   title            String
   description      String?
   followUpQuestion String?   @map("follow_up_question")
+  followUpRequired Boolean   @default(false) @map("follow_up_required")
   isActive         Boolean   @default(true) @map("is_active")
   scoreMin         Int       @default(0)  @map("score_min")
   scoreMax         Int       @default(10) @map("score_max")

@@ -4,9 +4,10 @@ import { ArrowLeft, ArrowRight, Send, CheckCircle2, Pencil, AlertCircle } from "
 import type { EnpsSurvey, ScoreLabel } from "@/types/enps";
 
 interface Props {
-  survey:     EnpsSurvey;
-  onComplete: () => void;
-  onCancel:   () => void;
+  survey:           EnpsSurvey;
+  existingResponse?: { score: number; followUpAnswer: string | null } | null;
+  onComplete:       () => void;
+  onCancel:         () => void;
 }
 
 type Phase = "score" | "followup" | "review" | "done";
@@ -18,10 +19,12 @@ const DEFAULT_LABELS: ScoreLabel[] = [
   { from: 9, to: 10, label: "¡Promotor! Te encanta Alegra",               color: "#22c55e" },
 ];
 
-export default function EnpsTaker({ survey, onComplete, onCancel }: Props) {
-  const [phase, setPhase]           = useState<Phase>("score");
-  const [score, setScore]           = useState<number | null>(null);
-  const [followUp, setFollowUp]     = useState("");
+export default function EnpsTaker({ survey, existingResponse, onComplete, onCancel }: Props) {
+  // Ya envió el puntaje antes (p. ej. campaña reabierta para completar un comentario obligatorio)
+  const lockedScore  = existingResponse ?? null;
+  const [phase, setPhase]           = useState<Phase>(lockedScore ? "followup" : "score");
+  const [score, setScore]           = useState<number | null>(lockedScore?.score ?? null);
+  const [followUp, setFollowUp]     = useState(lockedScore?.followUpAnswer ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]           = useState("");
   const [visible, setVisible]       = useState(true);
@@ -30,8 +33,9 @@ export default function EnpsTaker({ survey, onComplete, onCancel }: Props) {
   const scoreMax   = survey.scoreMax ?? 10;
   const labels     = (survey.scoreLabels as ScoreLabel[] | null) ?? DEFAULT_LABELS;
   const hasFollowUp = !!survey.followUpQuestion;
-  const totalSteps  = 1 + (hasFollowUp ? 1 : 0);
-  const currentStep = phase === "score" ? 1 : phase === "followup" ? 2 : totalSteps;
+  const followUpRequired = survey.followUpRequired && !lockedScore?.followUpAnswer;
+  const totalSteps  = lockedScore ? 1 : 1 + (hasFollowUp ? 1 : 0);
+  const currentStep = phase === "score" ? 1 : phase === "followup" ? (lockedScore ? 1 : 2) : totalSteps;
   const steps       = Array.from({ length: scoreMax - scoreMin + 1 }, (_, i) => i + scoreMin);
   const progress    = (currentStep / totalSteps) * 100;
 
@@ -51,17 +55,24 @@ export default function EnpsTaker({ survey, onComplete, onCancel }: Props) {
       setError("");
       transition(() => setPhase(hasFollowUp ? "followup" : "review"));
     } else if (phase === "followup") {
+      if (followUpRequired && !followUp.trim()) { setError("Este comentario es obligatorio para continuar."); return; }
+      setError("");
       transition(() => setPhase("review"));
     }
   };
 
   const goBack = () => {
-    if (phase === "followup") transition(() => setPhase("score"));
-    else if (phase === "review") transition(() => setPhase(hasFollowUp ? "followup" : "score"));
+    if (phase === "followup") {
+      if (lockedScore) onCancel();
+      else transition(() => setPhase("score"));
+    } else if (phase === "review") {
+      transition(() => setPhase(hasFollowUp ? "followup" : "score"));
+    }
   };
 
   const handleSubmit = async () => {
     if (score === null) { setError("Necesitas seleccionar un puntaje."); return; }
+    if (followUpRequired && !followUp.trim()) { setError("Este comentario es obligatorio."); return; }
     setSubmitting(true);
     setError("");
     try {
@@ -145,13 +156,15 @@ export default function EnpsTaker({ survey, onComplete, onCancel }: Props) {
               </div>
             </div>
           </div>
-          <button
-            onClick={() => transition(() => setPhase("score"))}
-            className="flex items-center gap-1.5 text-xs font-bold text-[#64748b] hover:text-primary px-3 py-2 rounded-xl hover:bg-primary/10 transition-all shrink-0"
-          >
-            <Pencil className="w-3.5 h-3.5" />
-            Editar
-          </button>
+          {!lockedScore && (
+            <button
+              onClick={() => transition(() => setPhase("score"))}
+              className="flex items-center gap-1.5 text-xs font-bold text-[#64748b] hover:text-primary px-3 py-2 rounded-xl hover:bg-primary/10 transition-all shrink-0"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+              Editar
+            </button>
+          )}
         </div>
 
         {/* Follow-up */}
@@ -194,7 +207,7 @@ export default function EnpsTaker({ survey, onComplete, onCancel }: Props) {
           <p className="text-xs text-[#64748b]">Tu respuesta es anónima para tu equipo.</p>
           <button
             onClick={handleSubmit}
-            disabled={submitting || score === null}
+            disabled={submitting || score === null || (followUpRequired && !followUp.trim())}
             className="flex items-center gap-2 bg-primary text-white px-8 py-3 rounded-xl font-bold hover:shadow-lg hover:shadow-primary/20 transition-all disabled:opacity-50"
           >
             {submitting
@@ -317,14 +330,19 @@ export default function EnpsTaker({ survey, onComplete, onCancel }: Props) {
             <>
               <p className="text-xl font-bold text-[#1e293b] mb-10 leading-snug text-center">
                 {survey.followUpQuestion}
-                <span className="block text-sm font-normal text-[#64748b] mt-2">(Opcional)</span>
+                <span className="block text-sm font-normal text-[#64748b] mt-2">
+                  {followUpRequired ? "(Obligatorio)" : "(Opcional)"}
+                </span>
               </p>
               <textarea
                 value={followUp}
-                onChange={(e) => setFollowUp(e.target.value)}
+                onChange={(e) => { setFollowUp(e.target.value); setError(""); }}
                 className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl p-4 outline-none focus:border-primary transition-colors min-h-[120px] text-sm resize-none"
                 placeholder="Comparte tu opinión..."
               />
+              {error && (
+                <p className="text-center text-xs text-red-500 font-semibold mt-3">{error}</p>
+              )}
             </>
           )}
         </div>
@@ -333,11 +351,11 @@ export default function EnpsTaker({ survey, onComplete, onCancel }: Props) {
       {/* Navegación */}
       <div className="flex items-center justify-between">
         <button
-          onClick={isScorePhase ? onCancel : () => transition(() => setPhase("score"))}
+          onClick={isScorePhase || lockedScore ? onCancel : goBack}
           className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm text-[#64748b] border border-slate-200 hover:bg-slate-50 transition-all"
         >
           <ArrowLeft className="w-4 h-4" />
-          {isScorePhase ? "Cancelar" : "Anterior"}
+          {isScorePhase || lockedScore ? "Cancelar" : "Anterior"}
         </button>
 
         {/* Dots */}

@@ -21,6 +21,11 @@ export async function POST(
       return NextResponse.json({ error: "Empleado no encontrado" }, { status: 404 });
     }
 
+    const survey = await prisma.enpsSurvey.findUnique({ where: { id: surveyId } });
+    if (!survey) {
+      return NextResponse.json({ error: "Campaña no encontrada" }, { status: 404 });
+    }
+
     const body = await request.json();
     const { score, followUpAnswer } = body;
 
@@ -28,16 +33,34 @@ export async function POST(
       return NextResponse.json({ error: "Score inválido (0–10)" }, { status: 400 });
     }
 
-    // Crear respuesta y marcar asignación como completada (transacción)
+    const trimmedFollowUp = followUpAnswer?.trim() || null;
+    if (survey.followUpRequired && !trimmedFollowUp) {
+      return NextResponse.json({ error: "El comentario es obligatorio para esta encuesta" }, { status: 400 });
+    }
+
+    const existing = await prisma.enpsSurveyResponse.findUnique({
+      where: { surveyId_employeeId: { surveyId, employeeId: employee.id } },
+    });
+
+    // Ya respondió por completo (no falta el comentario obligatorio) → no se puede volver a responder
+    if (existing && (!survey.followUpRequired || existing.followUpAnswer?.trim())) {
+      return NextResponse.json({ error: "Ya respondiste esta campaña" }, { status: 409 });
+    }
+
     const response = await prisma.$transaction(async (tx) => {
-      const res = await tx.enpsSurveyResponse.create({
-        data: {
-          surveyId,
-          employeeId:    employee.id,
-          score:         Math.round(score),
-          followUpAnswer: followUpAnswer?.trim() || null,
-        },
-      });
+      const res = existing
+        ? await tx.enpsSurveyResponse.update({
+            where: { id: existing.id },
+            data:  { followUpAnswer: trimmedFollowUp },
+          })
+        : await tx.enpsSurveyResponse.create({
+            data: {
+              surveyId,
+              employeeId:     employee.id,
+              score:          Math.round(score),
+              followUpAnswer: trimmedFollowUp,
+            },
+          });
 
       // Marcar completed_at si existe asignación
       await tx.enpsSurveyAssignment.updateMany({
@@ -48,7 +71,7 @@ export async function POST(
       return res;
     });
 
-    return NextResponse.json(response, { status: 201 });
+    return NextResponse.json(response, { status: existing ? 200 : 201 });
   } catch (error: unknown) {
     // Unique constraint → ya respondió
     if (

@@ -361,6 +361,7 @@ export default function EnpsPage() {
       {viewState === "take" && activeSurvey && effectiveRole === "viewer" && (
         <EnpsTaker
           survey={activeSurvey}
+          existingResponse={activeSurvey.myResponse ?? null}
           onComplete={() => { showToast("¡Respuesta enviada! Gracias por participar."); goToList(); }}
           onCancel={goToList}
         />

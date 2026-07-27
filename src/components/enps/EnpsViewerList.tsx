@@ -33,12 +33,17 @@ export default function EnpsViewerList({ surveys, onAnswer }: Props) {
                 <p className="text-xs text-[#64748b] mt-2">
                   Lanzada el {new Date(s.createdAt).toLocaleDateString("es-CO", { year: "numeric", month: "long", day: "numeric" })}
                 </p>
+                {s.myResponse && (
+                  <p className="text-xs text-amber-600 font-semibold mt-1">
+                    Ya registramos tu puntaje — falta tu comentario
+                  </p>
+                )}
               </div>
               <button
                 onClick={() => onAnswer(s)}
                 className="shrink-0 bg-[#1e293b] text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-primary hover:shadow-lg hover:shadow-primary/20 transition-all"
               >
-                Responder →
+                {s.myResponse ? "Completar comentario →" : "Responder →"}
               </button>
             </div>
           ))}

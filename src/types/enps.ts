@@ -10,6 +10,7 @@ export interface EnpsSurvey {
   title:            string;
   description:      string | null;
   followUpQuestion: string | null;
+  followUpRequired: boolean;
   isActive:         boolean;
   createdAt:        string;
   responsesCount:   number;
@@ -19,6 +20,7 @@ export interface EnpsSurvey {
   scoreMax:         number;        // default 10
   scoreLabels:      ScoreLabel[] | null;
   hasResponded?:    boolean;       // solo para viewers
+  myResponse?:      { score: number; followUpAnswer: string | null } | null; // solo para viewers
 }
 
 export interface EnpsSurveyFormData {
