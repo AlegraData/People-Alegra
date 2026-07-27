@@ -1,5 +1,9 @@
 const WEBHOOK_URL = process.env.GOOGLE_CHAT_WEBHOOK_360;
 
+// Suspendido a pedido de People (2026-07-27): dejar de notificar al canal cada
+// vez que se agrega/quita a alguien de una evaluación 360. Poner en `true` para reactivar.
+const NOTIFICATIONS_ENABLED = false;
+
 const TYPE_LABELS: Record<string, string> = {
   ascendente:     "Ascendente",
   descendente:    "Descendente",
@@ -22,7 +26,7 @@ export interface ChangeRequestNotifyPayload {
 }
 
 export function notifyChangeRequest(payload: ChangeRequestNotifyPayload): void {
-  if (!WEBHOOK_URL) return;
+  if (!NOTIFICATIONS_ENABLED || !WEBHOOK_URL) return;
 
   const actionLabel = payload.action === "add" ? "➕ Agregar evaluado" : "➖ Quitar evaluado";
   const statusEmoji = { pending: "🟡", approved: "✅", rejected: "❌" }[payload.status];
