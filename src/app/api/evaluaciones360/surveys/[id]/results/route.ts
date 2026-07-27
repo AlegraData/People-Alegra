@@ -20,6 +20,9 @@ interface TypeResult {
   submittedCount: number;
   questionScores: Record<string, { avg: number; weight: number; category?: string; text: string }>;
   categoryScores: Record<string, { avg: number; count: number }>;
+  // Preguntas abiertas (texto/booleano/opción): sin identificar al evaluador,
+  // igual que el resto de la vista, que es 100% agregada/anónima.
+  openQuestions: { id: string; text: string; type: string; category?: string; answers: (string | number)[] }[];
 }
 
 export async function GET(_req: Request, { params }: Ctx) {
@@ -110,7 +113,22 @@ export async function GET(_req: Request, { params }: Ctx) {
           );
         });
 
-        byType[type] = { score: typeScore, submittedCount: typeAssignments.length, questionScores, categoryScores };
+        // Preguntas abiertas: se listan las respuestas tal cual, sin decir quién
+        // las escribió (mismo criterio de confidencialidad que las calificaciones).
+        const openQs = (questionsMap[type] ?? []).filter((q) => q.type !== "rating");
+        const openQuestions: TypeResult["openQuestions"] = openQs
+          .map((q) => {
+            const answers: (string | number)[] = [];
+            typeAssignments.forEach((a) => {
+              const ans = (a.finalAnswers ?? {}) as Record<string, string | number>;
+              const val = ans[q.id];
+              if (val !== undefined && val !== null && String(val).trim() !== "") answers.push(val);
+            });
+            return { id: q.id, text: q.text, type: q.type, category: q.category, answers };
+          })
+          .filter((oq) => oq.answers.length > 0);
+
+        byType[type] = { score: typeScore, submittedCount: typeAssignments.length, questionScores, categoryScores, openQuestions };
 
         // Contribute to global score weighted by typeWeight
         const tw = typeWeights[type] ?? 0;

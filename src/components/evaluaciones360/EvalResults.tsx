@@ -11,11 +11,20 @@ interface Props {
   onBack: () => void;
 }
 
+interface OpenQuestionResult {
+  id: string;
+  text: string;
+  type: string;
+  category?: string;
+  answers: (string | number)[];
+}
+
 interface TypeResult {
   score: number;
   submittedCount: number;
   questionScores: Record<string, { avg: number; weight: number; category?: string; text: string }>;
   categoryScores: Record<string, { avg: number; count: number }>;
+  openQuestions: OpenQuestionResult[];
 }
 
 interface EvaluateeResult {
@@ -192,10 +201,17 @@ export default function EvalResults({ evaluation, onBack }: Props) {
     exportTypes.forEach((type) => {
       const label  = EVAL_TYPE_LABELS[type];
       const typeQs = (data.questionsMap[type] ?? []).filter((q) => q.type === "rating");
+      const openQs = (data.questionsMap[type] ?? []).filter((q) => q.type !== "rating");
       headers.push(`${label} - Score`, `${label} - Respuestas`);
       typeQs.forEach((q) => {
         const cat = q.category ? `[${q.category}] ` : "";
         headers.push(`${label} - ${cat}${q.text} (${q.weight}%)`);
+      });
+      // Preguntas abiertas: se anexan como columnas de texto, sin identificar
+      // al evaluador (mismo criterio de confidencialidad que el resto del export).
+      openQs.forEach((q) => {
+        const cat = q.category ? `[${q.category}] ` : "";
+        headers.push(`${label} - [Abierta] ${cat}${q.text}`);
       });
     });
     const rows = data.results.map((r) => {
@@ -210,11 +226,19 @@ export default function EvalResults({ evaluation, onBack }: Props) {
         const label  = EVAL_TYPE_LABELS[type];
         const tr     = r.byType[type];
         const typeQs = (data.questionsMap[type] ?? []).filter((q) => q.type === "rating");
+        const openQs = (data.questionsMap[type] ?? []).filter((q) => q.type !== "rating");
         row[`${label} - Score`]      = tr?.score          ?? "";
         row[`${label} - Respuestas`] = tr?.submittedCount ?? 0;
         typeQs.forEach((q) => {
           const cat = q.category ? `[${q.category}] ` : "";
           row[`${label} - ${cat}${q.text} (${q.weight}%)`] = tr?.questionScores[q.id]?.avg ?? "";
+        });
+        openQs.forEach((q) => {
+          const cat = q.category ? `[${q.category}] ` : "";
+          const answers = tr?.openQuestions.find((oq) => oq.id === q.id)?.answers ?? [];
+          row[`${label} - [Abierta] ${cat}${q.text}`] = answers.length > 0
+            ? answers.map((a, i) => `${i + 1}. ${a}`).join("\n")
+            : "";
         });
       });
       return row;
@@ -352,6 +376,34 @@ export default function EvalResults({ evaluation, onBack }: Props) {
                                     />
                                   </div>
                                   <span className="text-sm font-black text-[#1e293b] w-8 text-right">{qs.avg}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {tr.openQuestions.length > 0 && (
+                        <div>
+                          <p className="text-[10px] font-bold uppercase text-[#64748b] mb-3">
+                            Comentarios y preguntas abiertas
+                          </p>
+                          <p className="text-[11px] text-[#94a3b8] mb-3 -mt-1.5">
+                            Respuestas anónimas — no se identifica a quién las escribió.
+                          </p>
+                          <div className="space-y-4">
+                            {tr.openQuestions.map((oq) => (
+                              <div key={oq.id}>
+                                {oq.category && (
+                                  <p className="text-[10px] font-black uppercase text-primary mb-0.5">{oq.category}</p>
+                                )}
+                                <p className="text-sm font-semibold text-[#1e293b] mb-2">{oq.text}</p>
+                                <div className="space-y-1.5">
+                                  {oq.answers.map((a, i) => (
+                                    <p key={i} className="text-sm text-[#64748b] bg-slate-50 rounded-lg px-3 py-2 italic">
+                                      &ldquo;{a}&rdquo;
+                                    </p>
+                                  ))}
                                 </div>
                               </div>
                             ))}
