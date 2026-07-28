@@ -45,11 +45,14 @@ export async function GET(
 
     const employeeIds = assignments.map((a) => a.employee_id as string);
 
-    // 2. Emails por UUID
-    const { data: employees } = await supabaseAdmin
-      .from("employees").select("id, email").in("id", employeeIds);
+    // 2. Emails por UUID — vía Prisma (conexión directa) para evitar el límite
+    // de tamaño de headers/URL de la REST API de Supabase con listas grandes de IDs.
+    const employees = await prisma.employee.findMany({
+      where: { id: { in: employeeIds } },
+      select: { id: true, email: true },
+    });
 
-    const idToEmail = new Map((employees ?? []).map((e) => [e.id as string, e.email as string]));
+    const idToEmail = new Map(employees.map((e) => [e.id, e.email]));
     const emails = [...idToEmail.values()];
 
     // 3. Detalles desde vista
