@@ -1,12 +1,55 @@
 "use client";
-import { useState, useEffect } from "react";
-import { ArrowLeft, MessageSquare, Download } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { ArrowLeft, MessageSquare, Download, Search, X, Filter } from "lucide-react";
 import type { EnpsSurvey, EnpsResults as EnpsResultsData, EnpsResponseDetail } from "@/types/enps";
 
 interface Props {
   survey: EnpsSurvey;
   onBack: () => void;
 }
+
+// ── Avatar helpers ────────────────────────────────────────────────────────────
+const AVATAR_COLORS = [
+  "bg-teal-100 text-teal-700",    "bg-blue-100 text-blue-700",
+  "bg-purple-100 text-purple-700","bg-rose-100 text-rose-700",
+  "bg-amber-100 text-amber-700",  "bg-cyan-100 text-cyan-700",
+  "bg-emerald-100 text-emerald-700","bg-indigo-100 text-indigo-700",
+];
+
+function avatarColor(s: string) {
+  let hash = 0;
+  for (const c of s) hash = (hash * 31 + c.charCodeAt(0)) & 0xffff;
+  return AVATAR_COLORS[hash % AVATAR_COLORS.length];
+}
+
+function getInitials(s: string) {
+  if (!s?.trim()) return "?";
+  const parts = s.trim().split(/[\s@._-]+/);
+  if (parts.length >= 2 && parts[0] && parts[1]) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return s.trim().slice(0, 2).toUpperCase() || "?";
+}
+
+function AvatarCircle({
+  avatarUrl, name, size = "md",
+}: { avatarUrl?: string | null; name: string; size?: "sm" | "md" | "lg" }) {
+  const [err, setErr] = useState(false);
+  const sz  = size === "sm" ? "w-9 h-9 text-xs" : size === "lg" ? "w-16 h-16 text-xl" : "w-11 h-11 text-sm";
+  const col = avatarColor(name);
+  if (avatarUrl && !err) {
+    return (
+      <img src={avatarUrl} alt={name} onError={() => setErr(true)}
+        className={`${sz} rounded-2xl object-cover shrink-0`} />
+    );
+  }
+  return (
+    <div className={`${sz} rounded-2xl flex items-center justify-center font-bold shrink-0 ${col}`}>
+      {getInitials(name)}
+    </div>
+  );
+}
+
+type PageSize = 10 | 20 | 50 | "all";
+const PAGE_SIZES: PageSize[] = [10, 20, 50, "all"];
 
 function ScoreDisplay({ score }: { score: number | null }) {
   if (score === null) {
@@ -63,6 +106,12 @@ export default function EnpsResults({ survey, onBack }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState("");
 
+  // Búsqueda + filtros + paginación de "Respuestas individuales"
+  const [search, setSearch]           = useState("");
+  const [filterCategory, setFilterCategory] = useState<"all" | EnpsResponseDetail["category"]>("all");
+  const [page, setPage]               = useState(1);
+  const [pageSize, setPageSize]       = useState<PageSize>(10);
+
   useEffect(() => {
     fetch(`/api/enps/surveys/${survey.id}/results`)
       .then((r) => r.json())
@@ -73,6 +122,8 @@ export default function EnpsResults({ survey, onBack }: Props) {
       .catch(() => setError("Error al cargar los resultados."))
       .finally(() => setLoading(false));
   }, [survey.id]);
+
+  useEffect(() => { setPage(1); }, [search, filterCategory, pageSize]);
 
   if (loading) {
     return (
@@ -104,6 +155,22 @@ export default function EnpsResults({ survey, onBack }: Props) {
   const pPct = total > 0 ? Math.round((promoters  / total) * 100) : 0;
   const nPct = total > 0 ? Math.round((passives   / total) * 100) : 0;
   const dPct = total > 0 ? Math.round((detractors / total) * 100) : 0;
+
+  // Búsqueda + filtro por categoría + paginación
+  const q = search.trim().toLowerCase();
+  const filteredResponses = responses.filter((r) => {
+    const matchesQuery = !q ||
+      r.employeeName.toLowerCase().includes(q) ||
+      r.employeeEmail.toLowerCase().includes(q) ||
+      (r.team ?? "").toLowerCase().includes(q);
+    const matchesCategory = filterCategory === "all" || r.category === filterCategory;
+    return matchesQuery && matchesCategory;
+  });
+  const totalPages = pageSize === "all" ? 1 : Math.max(1, Math.ceil(filteredResponses.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const paginatedResponses = pageSize === "all"
+    ? filteredResponses
+    : filteredResponses.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const handleExportCSV = () => {
     if (responses.length === 0) { alert("No hay respuestas para exportar."); return; }
@@ -222,9 +289,42 @@ export default function EnpsResults({ survey, onBack }: Props) {
       {/* Respuestas individuales */}
       {responses.length > 0 && (
         <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden">
-          <div className="px-8 py-6 border-b border-slate-100">
+          <div className="px-8 py-6 border-b border-slate-100 flex flex-wrap items-center justify-between gap-4">
             <h4 className="font-bold text-[#1e293b]">Respuestas individuales</h4>
+
+            {/* Búsqueda + filtro por categoría */}
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#94a3b8]" />
+                <input
+                  type="text"
+                  placeholder="Buscar por nombre, correo o equipo…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-64 pl-10 pr-9 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm text-[#1e293b] placeholder:text-[#94a3b8] focus:outline-none focus:ring-2 focus:ring-primary/30 transition-shadow"
+                />
+                {search && (
+                  <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#94a3b8] hover:text-[#64748b]">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 shrink-0">
+                <Filter className="w-3.5 h-3.5 text-[#94a3b8]" />
+                <select
+                  value={filterCategory}
+                  onChange={(e) => setFilterCategory(e.target.value as typeof filterCategory)}
+                  className="text-sm text-[#1e293b] bg-transparent outline-none cursor-pointer"
+                >
+                  <option value="all">Todas las categorías</option>
+                  <option value="promoter">Promotor</option>
+                  <option value="passive">Pasivo</option>
+                  <option value="detractor">Detractor</option>
+                </select>
+              </div>
+            </div>
           </div>
+
           <div className="overflow-x-auto">
             <table className="w-full text-left">
               <thead>
@@ -244,11 +344,16 @@ export default function EnpsResults({ survey, onBack }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {responses.map((r) => (
+                {paginatedResponses.map((r) => (
                   <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50/60 transition-colors">
                     <td className="px-8 py-3.5">
-                      <p className="font-semibold text-sm text-[#1e293b] whitespace-nowrap">{r.employeeName}</p>
-                      <p className="text-xs text-[#64748b]">{r.employeeEmail}</p>
+                      <div className="flex items-center gap-3">
+                        <AvatarCircle avatarUrl={r.avatarUrl} name={r.employeeName || r.employeeEmail} size="sm" />
+                        <div className="min-w-0">
+                          <p className="font-semibold text-sm text-[#1e293b] whitespace-nowrap">{r.employeeName}</p>
+                          <p className="text-xs text-[#64748b]">{r.employeeEmail}</p>
+                        </div>
+                      </div>
                     </td>
                     <td className="px-4 py-3.5">
                       <span className={`text-2xl font-black ${scoreColor(r.score, scoreMax)}`}>
@@ -270,8 +375,61 @@ export default function EnpsResults({ survey, onBack }: Props) {
                     </td>
                   </tr>
                 ))}
+                {paginatedResponses.length === 0 && (
+                  <tr>
+                    <td colSpan={survey.followUpQuestion ? 5 : 4} className="py-12 text-center text-sm text-[#94a3b8]">
+                      No hay respuestas que coincidan con la búsqueda.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
+          </div>
+
+          {/* Paginación */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-8 py-4 border-t border-slate-100">
+            <p className="text-xs text-[#64748b]">
+              {filteredResponses.length} respuesta{filteredResponses.length !== 1 ? "s" : ""}
+              {pageSize !== "all" && filteredResponses.length > 0
+                ? ` · ${(currentPage - 1) * pageSize + 1}–${Math.min(currentPage * pageSize, filteredResponses.length)}`
+                : ""}
+            </p>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1">
+                {PAGE_SIZES.map((size) => (
+                  <button
+                    key={size}
+                    onClick={() => setPageSize(size)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      pageSize === size ? "bg-white shadow-sm text-[#1e293b]" : "text-[#64748b] hover:text-[#1e293b]"
+                    }`}
+                  >
+                    {size === "all" ? "Todos" : size}
+                  </button>
+                ))}
+              </div>
+              {pageSize !== "all" && totalPages > 1 && (
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-[#64748b] hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    ←
+                  </button>
+                  <span className="text-xs font-bold text-[#1e293b] px-1">
+                    {currentPage} / {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-[#64748b] hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    →
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

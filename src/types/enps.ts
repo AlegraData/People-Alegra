@@ -40,6 +40,8 @@ export interface EnpsResponseDetail {
   employeeId:     string;
   employeeName:   string;
   employeeEmail:  string;
+  avatarUrl:      string | null;
+  team:           string | null;
   score:          number;
   category:       EnpsCategory;
   followUpAnswer: string | null;

@@ -65,6 +65,12 @@ export async function GET(
 
     const detailsByEmail = new Map((empDetails ?? []).map((e) => [e.correo as string, e]));
 
+    // 3b. Avatares (Google, cacheados en user_roles al hacer login)
+    const { data: avatarRows } = emails.length
+      ? await supabaseAdmin.from("user_roles").select("email, avatar_url").in("email", emails)
+      : { data: [] };
+    const avatarByEmail = new Map((avatarRows ?? []).map((r) => [r.email as string, r.avatar_url as string | null]));
+
     // 4. Respuestas existentes (incluye score)
     const { data: responses } = await supabaseAdmin
       .from("enps_survey_responses")
@@ -86,6 +92,7 @@ export async function GET(
         nombre_completo: (detail?.nombre_completo as string) ?? email,
         cargo:           (detail?.cargo as string)  ?? null,
         equipo:          (detail?.equipo as string) ?? null,
+        avatar_url:      avatarByEmail.get(email) ?? null,
         assigned_at:     a.assigned_at as string,
         completed_at:    (a.completed_at as string) ?? null,
         score:           resp ? (resp.score as number) : null,

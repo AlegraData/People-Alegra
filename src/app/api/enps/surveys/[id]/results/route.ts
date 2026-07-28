@@ -63,6 +63,17 @@ export async function GET(
       orderBy: { submittedAt: "desc" },
     });
 
+    // Avatar (user_roles) y equipo (vista de empleados activos), por correo
+    const emails = responses.map((r) => r.employee.email);
+    const [{ data: avatarRows }, { data: teamRows }] = emails.length
+      ? await Promise.all([
+          supabaseAdmin.from("user_roles").select("email, avatar_url").in("email", emails),
+          supabaseAdmin.from("v_empleados_activos_completa").select("correo, equipo").in("correo", emails),
+        ])
+      : [{ data: [] }, { data: [] }];
+    const avatarByEmail = new Map((avatarRows ?? []).map((r) => [r.email as string, r.avatar_url as string | null]));
+    const teamByEmail    = new Map((teamRows ?? []).map((r) => [r.correo as string, r.equipo as string | null]));
+
     const scoreMax = survey.scoreMax;
     const scoreMin = survey.scoreMin;
 
@@ -107,6 +118,8 @@ export async function GET(
           employeeId:     r.employeeId,
           employeeName:   fullName,
           employeeEmail:  r.employee.email,
+          avatarUrl:      avatarByEmail.get(r.employee.email) ?? null,
+          team:           teamByEmail.get(r.employee.email) ?? null,
           score:          r.score,
           category:       scoreToCategory(r.score, scoreMax),
           followUpAnswer: r.followUpAnswer,
