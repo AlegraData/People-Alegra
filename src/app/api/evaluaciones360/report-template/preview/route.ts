@@ -37,7 +37,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Sin permiso" }, { status: 403 });
 
     const body = await request.json();
-    const { surveyId, evaluateeEmail, config } = body as { surveyId?: string; evaluateeEmail?: string; config?: unknown };
+    const { surveyId, evaluateeEmail, config, format } = body as { surveyId?: string; evaluateeEmail?: string; config?: unknown; format?: "html" | "pdf" };
     if (!surveyId || !evaluateeEmail) {
       return NextResponse.json({ error: "Faltan surveyId/evaluateeEmail" }, { status: 400 });
     }
@@ -70,6 +70,12 @@ export async function POST(request: Request) {
     }
 
     const html = buildReportHtml(reportData);
+    // El editor pide "html" para la vista previa en vivo (arrastrar/redimensionar
+    // sobre el propio DOM, sin el costo de Puppeteer en cada micro-cambio); el
+    // PDF real (con paginación exacta) solo se genera bajo demanda ("Ver PDF real").
+    if (format === "html") {
+      return new NextResponse(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+    }
     const pdf = await generatePdfFromHtml(html);
     return new NextResponse(new Uint8Array(pdf), { headers: { "Content-Type": "application/pdf" } });
   } catch (error) {

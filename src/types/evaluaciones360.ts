@@ -44,11 +44,15 @@ export interface ReportSectionEntry {
  * un peso independiente del `weight` normal de su categoría, solo para el
  * cálculo de esta sección.
  */
+/** Dónde se inserta esta sección dentro de la grilla de "Comparativo de tus resultados". `"end"` (default) = al final. */
+export type ReportSectionPosition = "after-alegra" | "after-team" | "after-auto" | "end";
+
 export interface CustomReportSection {
   id: string;
   name: string;
   description?: string;
   entries: ReportSectionEntry[];
+  position?: ReportSectionPosition;
 }
 
 /** Preguntas organizadas por tipo de evaluación */

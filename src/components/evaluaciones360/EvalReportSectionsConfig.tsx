@@ -1,7 +1,7 @@
 "use client";
 import { useState, useMemo } from "react";
 import { Plus, Trash2, Check, X, Layers } from "lucide-react";
-import type { Evaluation360, CustomReportSection, EvalType } from "@/types/evaluaciones360";
+import type { Evaluation360, CustomReportSection, EvalType, ReportSectionPosition } from "@/types/evaluaciones360";
 import { EVAL_TYPE_LABELS, normalizeQuestions } from "@/types/evaluaciones360";
 
 interface Props {
@@ -10,6 +10,13 @@ interface Props {
 }
 
 const EVAL_TYPES: EvalType[] = ["ascendente", "descendente", "paralela", "autoevaluacion"];
+
+const POSITION_LABELS: Record<ReportSectionPosition, string> = {
+  "after-alegra": "Después de Alegra",
+  "after-team": "Después de Technical Team",
+  "after-auto": "Después de Autoevaluación",
+  "end": "Al final",
+};
 
 export default function EvalReportSectionsConfig({ evaluation, onSaved }: Props) {
   const questionsMap = useMemo(() => normalizeQuestions(evaluation.questions as unknown), [evaluation.questions]);
@@ -21,6 +28,7 @@ export default function EvalReportSectionsConfig({ evaluation, onSaved }: Props)
   // Formulario de nueva sección
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [position, setPosition] = useState<ReportSectionPosition>("end");
   const [weightsById, setWeightsById] = useState<Record<string, number>>({});
 
   const questionTextById = useMemo(() => {
@@ -51,7 +59,7 @@ export default function EvalReportSectionsConfig({ evaluation, onSaved }: Props)
   }
 
   function resetForm() {
-    setName(""); setDescription(""); setWeightsById({}); setCreating(false);
+    setName(""); setDescription(""); setPosition("end"); setWeightsById({}); setCreating(false);
   }
 
   function toggleQuestion(id: string, checked: boolean) {
@@ -70,6 +78,7 @@ export default function EvalReportSectionsConfig({ evaluation, onSaved }: Props)
       id: crypto.randomUUID(),
       name: name.trim(),
       description: description.trim() || undefined,
+      position,
       entries,
     };
     await persist([...sections, section]);
@@ -136,9 +145,12 @@ export default function EvalReportSectionsConfig({ evaluation, onSaved }: Props)
             <div key={section.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <Layers className="w-4 h-4 text-primary shrink-0" />
                     <p className="font-bold text-[#1e293b]">{section.name}</p>
+                    <span className="text-[10px] font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+                      {POSITION_LABELS[section.position ?? "end"]}
+                    </span>
                   </div>
                   {section.description && <p className="text-xs text-[#64748b] mt-1">{section.description}</p>}
                   <div className="flex flex-wrap gap-1.5 mt-2.5">
@@ -202,6 +214,18 @@ export default function EvalReportSectionsConfig({ evaluation, onSaved }: Props)
                 placeholder="Se muestra bajo el título del gráfico en el PDF"
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary transition-colors"
               />
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase text-[#64748b] mb-1.5">Posición en el documento</label>
+              <select
+                value={position}
+                onChange={(e) => setPosition(e.target.value as ReportSectionPosition)}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary transition-colors cursor-pointer"
+              >
+                {(Object.keys(POSITION_LABELS) as ReportSectionPosition[]).map((p) => (
+                  <option key={p} value={p}>{POSITION_LABELS[p]}</option>
+                ))}
+              </select>
             </div>
 
             <div>

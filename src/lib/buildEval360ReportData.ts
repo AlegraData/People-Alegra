@@ -118,6 +118,7 @@ export function buildEval360ReportData(params: {
     vsCustomSections.push({
       name: section.name,
       description: section.description,
+      position: section.position,
       rows: [
         { category: "Alegra", mine: myPeerScore, benchmark: bench.alegraAvg },
         { category: "Technical Team", mine: myPeerScore, benchmark: myTeam ? (bench.teamAvg.get(myTeam) ?? bench.alegraAvg) : bench.alegraAvg },
