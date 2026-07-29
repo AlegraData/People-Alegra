@@ -60,3 +60,14 @@ evaluacion360_todos_los_equipos.xlsx
 evaluacion360_pendientes_por_importar.xlsx
 evaluacion360_pendientes_por_importar.xlsx
 eNPS_2026-2_sin_comentario.xlsx
+evaluacion360_S2-2026_calificaciones_pendientes.xlsx
+reporte/Plantilla Feedback 360°.pdf
+reporte/main.gs
+.gitignore
+reporte/listaIndicadoresMejoras.gs
+reporte/idsCarpetasDrive.gs
+reporte/globals.gs
+reporte/generateDocument.gs
+reporte/generateComments.gs
+reporte/charts.gs
+reporte/

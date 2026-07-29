@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Plus, Users, BarChart2, Pencil, Trash2, Power, PowerOff, CheckCircle2, Clock, Inbox, Copy } from "lucide-react";
+import { Plus, Users, BarChart2, Pencil, Trash2, Power, PowerOff, CheckCircle2, Clock, Inbox, Copy, FileText } from "lucide-react";
 import type { Evaluation360 } from "@/types/evaluaciones360";
 
 interface Props {
@@ -10,11 +10,12 @@ interface Props {
   onDuplicate: (e: Evaluation360) => void;
   onParticipants: (e: Evaluation360) => void;
   onResults: (e: Evaluation360) => void;
+  onReports: (e: Evaluation360) => void;
   onChangeRequests: (e: Evaluation360) => void;
   onRefresh: () => void;
 }
 
-export default function AdminList({ evaluations, onCreateNew, onEdit, onDuplicate, onParticipants, onResults, onChangeRequests, onRefresh }: Props) {
+export default function AdminList({ evaluations, onCreateNew, onEdit, onDuplicate, onParticipants, onResults, onReports, onChangeRequests, onRefresh }: Props) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
 
@@ -135,6 +136,12 @@ export default function AdminList({ evaluations, onCreateNew, onEdit, onDuplicat
                       onClick={() => onResults(e)}
                       icon={<BarChart2 className="w-4 h-4" />}
                       label="Resultados"
+                      variant="default"
+                    />
+                    <ActionBtn
+                      onClick={() => onReports(e)}
+                      icon={<FileText className="w-4 h-4" />}
+                      label="Reportes"
                       variant="default"
                     />
                     <ActionBtn

@@ -31,6 +31,26 @@ export interface Eval360Question {
   options?: string[];
 }
 
+/** Una pregunta (de cualquiera de los 4 tipos) incluida en una sección personalizada, con su peso propio para esa sección. */
+export interface ReportSectionEntry {
+  questionId: string;
+  weight: number;
+}
+
+/**
+ * Sección de análisis adicional del reporte PDF (ej. "Alineación Cultural"),
+ * definida por el admin desde Reportes → Configuración. Toma cualquier
+ * subconjunto de preguntas rating ya existentes (de cualquier tipo) y les da
+ * un peso independiente del `weight` normal de su categoría, solo para el
+ * cálculo de esta sección.
+ */
+export interface CustomReportSection {
+  id: string;
+  name: string;
+  description?: string;
+  entries: ReportSectionEntry[];
+}
+
 /** Preguntas organizadas por tipo de evaluación */
 export type Eval360Questions = Record<EvalType, Eval360Question[]>;
 
@@ -68,6 +88,7 @@ export interface Evaluation360 {
   weightParalela: number;
   weightAutoevaluacion: number;
   questions: Eval360Questions;
+  reportSections: CustomReportSection[];
   emailSubject?: string | null;
   emailBody?: string | null;
   emailButtonText?: string | null;

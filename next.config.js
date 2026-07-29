@@ -37,6 +37,9 @@ const nextConfig = {
   output: 'standalone',
   // No revelar el framework en el header `x-powered-by`.
   poweredByHeader: false,
+  // puppeteer-core (reportes PDF 360°) usa binarios nativos: debe quedar fuera
+  // del bundling de servidor de Next y copiarse tal cual al build standalone.
+  serverExternalPackages: ['puppeteer-core'],
   async headers() {
     // Estos headers son solo para producción (HTTPS real). En dev rompen dos cosas:
     // - Strict-Transport-Security queda cacheado por el navegador para "localhost"

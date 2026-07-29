@@ -207,6 +207,7 @@ model Evaluation360 {
   weightParalela       Float    @default(25)    @map("weight_paralela")
   weightAutoevaluacion Float    @default(25)    @map("weight_autoevaluacion")
   questions            Json
+  reportSections       Json     @default("[]") @map("report_sections")
   emailSubject         String?  @map("email_subject")
   emailBody            String?  @map("email_body")
   emailButtonText      String?  @map("email_button_text")
@@ -216,6 +217,7 @@ model Evaluation360 {
 
   assignments          Evaluation360Assignment[]
   changeRequests       EvaluationChangeRequest[]
+  reports              Evaluation360Report[]
 
   @@map("evaluations_360")
 }
@@ -262,4 +264,34 @@ model EvaluationChangeRequest {
   evaluation     Evaluation360 @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
 
   @@map("evaluation_360_change_requests")
+}
+
+model Evaluation360Report {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  evaluationId   String    @map("evaluation_id") @db.Uuid
+  evaluateeEmail String    @map("evaluatee_email")
+  evaluateeName  String?   @map("evaluatee_name")
+  status         String    @default("pending") // pending | generated | sent | failed
+  storagePath    String?   @map("storage_path")
+  generatedAt    DateTime? @map("generated_at")
+  sentAt         DateTime? @map("sent_at")
+  error          String?
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt       @map("updated_at")
+
+  evaluation     Evaluation360 @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+
+  @@unique([evaluationId, evaluateeEmail])
+  @@map("evaluation_360_reports")
+}
+
+// Configuración visual global (singleton) de la plantilla PDF de reportes 360°.
+model Evaluation360ReportTemplate {
+  id        String   @id @default("singleton")
+  config    Json
+  updatedBy String?  @map("updated_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt       @map("updated_at")
+
+  @@map("evaluation_360_report_template")
 }

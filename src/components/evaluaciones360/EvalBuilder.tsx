@@ -729,7 +729,7 @@ export default function EvalBuilder({ onSave, onCancel, initialData, isDuplicate
                     </div>
                   </div>
                   {q.type === "rating" && (
-                    <div className="flex items-center gap-2 mt-1">
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
                       <span className="text-xs font-bold text-[#64748b]">Rango:</span>
                       <input type="number" value={q.ratingMin ?? 1} onChange={(e) => patchQuestion(q.id, { ratingMin: parseInt(e.target.value) || 1 })}
                         className="w-14 text-center text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-primary" />

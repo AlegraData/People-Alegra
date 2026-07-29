@@ -26,7 +26,13 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 
-RUN apk add --no-cache openssl
+# Chromium del sistema para generar los PDFs de reportes 360° (puppeteer-core,
+# sin descargar su propio Chromium). Alpine no trae glibc, así que no sirve el
+# Chromium embebido de Puppeteer — se usa el binario de apk, compatible con musl.
+RUN apk add --no-cache openssl chromium nss freetype freetype-dev harfbuzz ca-certificates ttf-freefont
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
