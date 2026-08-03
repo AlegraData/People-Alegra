@@ -12,6 +12,10 @@ export interface ReportTemplateColors {
   textSecondary: string;
   background: string;
   cardBorder: string;
+  /** Gris del "promedio Alegra"/benchmark en las barras de comparativo y ranking. */
+  benchmarkGray: string;
+  /** Fondo de cada tarjeta de comentario individual (el bloque de comentarios). */
+  commentBg: string;
 }
 
 export type LogoAlign = "left" | "center" | "right";
@@ -139,6 +143,8 @@ export const DEFAULT_TEMPLATE_CONFIG: ReportTemplateConfig = {
     textSecondary: "#64748b",
     background: "#e2e8f0",
     cardBorder: "#e2e8f0",
+    benchmarkGray: "#94A3B8",
+    commentBg: "#f8fafc",
   },
   logo: {
     logoDataUri: null,

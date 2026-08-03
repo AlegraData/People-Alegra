@@ -1570,6 +1570,8 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
                 ["textSecondary", "Texto secundario"],
                 ["background", "Fondo de página"],
                 ["cardBorder", "Borde de tarjetas"],
+                ["benchmarkGray", "Gris de barras (comparativo/ranking)"],
+                ["commentBg", "Fondo de comentarios"],
               ] as const).map(([key, label]) => (
                 <input
                   key={key} type="color" title={label} value={config.colors[key]}

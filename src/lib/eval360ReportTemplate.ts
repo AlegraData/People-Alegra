@@ -15,10 +15,9 @@
 import { DEFAULT_TEMPLATE_CONFIG, densityScale, type ReportBlockId, type ReportTemplateConfig } from "./reportTemplateConfig";
 import type { ReportSectionPosition } from "@/types/evaluaciones360";
 
-// Colores neutrales que no forman parte del set curado de la plantilla visual
-// (ver Decisiones de alcance en el plan): el gris de "benchmark" y el gris
-// claro del estado vacío no cambian con la marca.
-const GRAY = "#CBD5E1";
+// Gris claro del estado vacío ("sin datos todavía") — no forma parte del set
+// curado de colores de marca ni tiene un caso de uso real para cambiarlo
+// (a diferencia del gris de "benchmark", ahora en theme.benchmarkGray).
 const SLATE_LIGHT = "#94a3b8";
 
 export interface CategoryComparisonRow {
@@ -196,6 +195,8 @@ interface Theme {
   textSecondary: string;
   background: string;
   cardBorder: string;
+  benchmarkGray: string;
+  commentBg: string;
   scale: number;
   cardPadding: number;
   cardRadius: number;
@@ -216,6 +217,8 @@ function buildTheme(config: ReportTemplateConfig): Theme {
     textSecondary: config.colors.textSecondary,
     background: config.colors.background,
     cardBorder: config.colors.cardBorder,
+    benchmarkGray: config.colors.benchmarkGray,
+    commentBg: config.colors.commentBg,
     scale: densityScale(config.layout.density),
     cardPadding: config.layout.cardPadding,
     cardRadius: config.layout.cardRadius,
@@ -312,7 +315,7 @@ function groupedBarChart(theme: Theme, blockScale: number, rows: CategoryCompari
       <g>
         <rect x="${x0}" y="${chartH - hMine}" width="${barW}" height="${hMine}" rx="3" fill="${theme.primary}"></rect>
         <text x="${x0 + barW / 2}" y="${chartH - hMine - 5}" font-size="${valueFontSize}" font-weight="700" fill="${theme.text}" text-anchor="middle">${fmt(r.mine)}</text>
-        <rect x="${x0 + barW + 5}" y="${chartH - hBench}" width="${barW}" height="${hBench}" rx="3" fill="${GRAY}"></rect>
+        <rect x="${x0 + barW + 5}" y="${chartH - hBench}" width="${barW}" height="${hBench}" rx="3" fill="${theme.benchmarkGray}"></rect>
         <text x="${x0 + barW + 5 + barW / 2}" y="${chartH - hBench - 5}" font-size="${valueFontSize}" font-weight="700" fill="${theme.textSecondary}" text-anchor="middle">${fmt(r.benchmark)}</text>
         <text x="${cx}" y="${chartH + 16}" font-size="${labelFontSize}" fill="${theme.textSecondary}" text-anchor="middle">${labelTspans}</text>
       </g>`;
@@ -321,7 +324,7 @@ function groupedBarChart(theme: Theme, blockScale: number, rows: CategoryCompari
   return `
     <div style="display:flex;align-items:center;gap:8px;justify-content:center;margin-bottom:4px;">
       <span style="display:inline-flex;align-items:center;gap:4px;font-size:9px;color:${theme.textSecondary};"><span style="width:8px;height:8px;border-radius:2px;background:${theme.primary};display:inline-block;"></span><div ${editAttrs(mineLabelPath, mineLabel)} style="display:inline-block;">${mineLabel}</div></span>
-      <span style="display:inline-flex;align-items:center;gap:4px;font-size:9px;color:${theme.textSecondary};"><span style="width:8px;height:8px;border-radius:2px;background:${GRAY};display:inline-block;"></span><div ${editAttrs(benchLabelPath, benchLabel)} style="display:inline-block;">${benchLabel}</div></span>
+      <span style="display:inline-flex;align-items:center;gap:4px;font-size:9px;color:${theme.textSecondary};"><span style="width:8px;height:8px;border-radius:2px;background:${theme.benchmarkGray};display:inline-block;"></span><div ${editAttrs(benchLabelPath, benchLabel)} style="display:inline-block;">${benchLabel}</div></span>
     </div>
     <svg width="100%" height="${chartH + chartBottomPad}" viewBox="0 0 ${width} ${chartH + chartBottomPad}" xmlns="http://www.w3.org/2000/svg">${bars}</svg>`;
 }
@@ -344,7 +347,7 @@ function horizontalRankingChart(theme: Theme, blockScale: number, rows: Question
     <div style="display:flex;align-items:center;gap:10px;padding:4px 0;break-inside:avoid;">
       <span style="flex:0 1 220px;min-width:0;font-size:${fontSize}px;color:${theme.text};line-height:1.3;">${esc(r.text)}</span>
       <span style="flex:1;position:relative;height:7px;background:${theme.background};border-radius:4px;overflow:hidden;">
-        <span style="position:absolute;left:0;top:0;height:100%;width:${pct(r.alegra)}%;background:${GRAY};border-radius:4px;"></span>
+        <span style="position:absolute;left:0;top:0;height:100%;width:${pct(r.alegra)}%;background:${theme.benchmarkGray};border-radius:4px;"></span>
         <span style="position:absolute;left:0;top:0;height:100%;width:${pct(r.mine)}%;background:${theme.primary};opacity:0.9;border-radius:4px;"></span>
       </span>
       <span style="flex:0 0 28px;font-size:${fontSize}px;font-weight:700;color:${theme.text};text-align:right;">${fmt(r.mine)}</span>
@@ -353,7 +356,7 @@ function horizontalRankingChart(theme: Theme, blockScale: number, rows: Question
   return `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
       <span style="display:inline-flex;align-items:center;gap:5px;font-size:${fontSize}px;color:${theme.textSecondary};"><span style="width:9px;height:9px;border-radius:3px;background:${theme.primary};display:inline-block;"></span><div ${editAttrs(mineLabelPath, mineLabel)} style="display:inline-block;">${mineLabel}</div></span>
-      <span style="display:inline-flex;align-items:center;gap:5px;font-size:${fontSize}px;color:${theme.textSecondary};"><span style="width:9px;height:9px;border-radius:3px;background:${GRAY};display:inline-block;"></span><div ${editAttrs(benchLabelPath, benchLabel)} style="display:inline-block;">${benchLabel}</div></span>
+      <span style="display:inline-flex;align-items:center;gap:5px;font-size:${fontSize}px;color:${theme.textSecondary};"><span style="width:9px;height:9px;border-radius:3px;background:${theme.benchmarkGray};display:inline-block;"></span><div ${editAttrs(benchLabelPath, benchLabel)} style="display:inline-block;">${benchLabel}</div></span>
     </div>
     <div>${barRows}</div>`;
 }
@@ -425,7 +428,7 @@ function commentSection(theme: Theme, blockScale: number, cardTitle: string, que
       <div ${editAttrs("comentarios.cardTitle", cardTitle)} style="font-weight:800;font-size:${titleSize}px;color:${theme.text};text-align:center;margin:0 0 6px;">${cardTitle}</div>
       <div ${editAttrs("comentarios.questionIntro", questionIntroTemplate, renderWithBoldRaw(questionIntroTemplate, "pregunta", c.questionText))} style="font-size:${descSize}px;color:${theme.textSecondary};text-align:center;margin:0 0 10px;">${questionIntro}</div>
       <div style="display:flex;flex-direction:column;gap:7px;">
-        ${c.answers.map((a) => `<p style="background:#f8fafc;border-radius:10px;padding:10px 13px;font-size:${textSize}px;color:${theme.textSecondary};font-style:italic;line-height:1.45;margin:0;break-inside:avoid;orphans:3;widows:3;">&ldquo;${esc(a)}&rdquo;</p>`).join("")}
+        ${c.answers.map((a) => `<p style="background:${theme.commentBg};border-radius:10px;padding:10px 13px;font-size:${textSize}px;color:${theme.textSecondary};font-style:italic;line-height:1.45;margin:0;break-inside:avoid;orphans:3;widows:3;">&ldquo;${esc(a)}&rdquo;</p>`).join("")}
       </div>
     </div>`;
 }
