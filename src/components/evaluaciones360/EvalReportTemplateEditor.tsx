@@ -350,6 +350,65 @@ function makeWidthResizable(target: HTMLElement, baseWidth: number, min: number,
   });
 }
 
+// Margen horizontal de página (`layout.pageMarginX`) arrastrando una manija
+// en el borde izquierdo de `.page` — mismo criterio que las demás manijas de
+// arrastre (feedback visual instantáneo aplicando el padding real de `.page`,
+// valor confirmado al soltar). El número del toolbar arriba sigue siendo la
+// alternativa precisa; esto no lo reemplaza.
+function makePageMarginXHandle(pageEl: HTMLElement, baseValue: number, min: number, max: number, onCommit: (value: number) => void, onDragStart: () => void, onDragEnd: () => void) {
+  const doc = pageEl.ownerDocument;
+  const handle = createHandle(doc, "↔", "ew-resize");
+  const rect = pageEl.getBoundingClientRect();
+  const scrollY = doc.documentElement.scrollTop || doc.body.scrollTop;
+  handle.style.top = `${rect.top + scrollY + 40}px`;
+  handle.style.left = `${rect.left - 10}px`;
+  doc.body.appendChild(handle);
+
+  let curValue = baseValue;
+  let startX = 0, dragging = false;
+  const clamp = (v: number) => Math.max(min, Math.min(max, v));
+  const onMove = (e: MouseEvent) => {
+    if (!dragging) return;
+    const value = clamp(curValue + (e.clientX - startX));
+    pageEl.style.paddingLeft = `${value}px`;
+    pageEl.style.paddingRight = `${value}px`;
+  };
+  const onUp = (e: MouseEvent) => {
+    if (!dragging) return;
+    dragging = false;
+    doc.removeEventListener("mousemove", onMove);
+    doc.removeEventListener("mouseup", onUp);
+    curValue = Math.round(clamp(curValue + (e.clientX - startX)));
+    onDragEnd();
+    onCommit(curValue);
+  };
+  handle.addEventListener("mousedown", (e) => {
+    dragging = true;
+    startX = e.clientX;
+    onDragStart();
+    doc.addEventListener("mousemove", onMove);
+    doc.addEventListener("mouseup", onUp);
+    e.preventDefault();
+  });
+}
+
+// Manija de color anclada junto a un elemento representativo que ya usa ese
+// color en el documento (ej. la primera barra "Tú" del comparativo → primary,
+// el borde de una tarjeta → cardBorder) — abre el mismo `<input type="color">`
+// nativo que ya dispara `setColor()` desde el toolbar de arriba; ese swatch
+// del toolbar se deja intacto como alternativa más precisa/visible.
+function makeColorHandle(doc: Document, anchorEl: HTMLElement, corner: "top-right" | "top-left" | "bottom-right", currentColor: string, title: string, onCommit: (value: string) => void) {
+  const input = doc.createElement("input");
+  input.type = "color";
+  input.value = currentColor;
+  input.title = title;
+  input.style.cssText = "position:absolute;width:20px;height:20px;padding:0;border:2px solid #fff;border-radius:9999px;box-shadow:0 1px 4px rgba(0,0,0,0.35);cursor:pointer;z-index:9999;";
+  positionHandleAt(input, anchorEl, corner);
+  input.addEventListener("mousedown", (e) => e.stopPropagation());
+  input.addEventListener("input", (e) => onCommit((e.target as HTMLInputElement).value));
+  doc.body.appendChild(input);
+}
+
 // Manija de borrado (clic simple, no arrastre) para un cuadro de texto.
 function makeDeletable(target: HTMLElement, onDelete: () => void) {
   const doc = target.ownerDocument;
@@ -391,7 +450,17 @@ function mountRichEditor(
   onFieldActivate: (field: ActiveRichField) => void,
   forceToolbarUpdate: () => void
 ) {
-  const initialHtml = el.innerHTML;
+  // Para "copy", el editor debe partir de `data-raw` (la plantilla SIN
+  // interpolar, con sus {{placeholders}} intactos) — NUNCA de `el.innerHTML`,
+  // que es el valor YA resuelto para el evaluado que se está previsualizando
+  // en este momento. Antes se usaba innerHTML acá: el admin editaba, por
+  // ejemplo, el saludo mientras previsualizaba a "María" y Tiptap arrancaba
+  // de "¡Hola, María!" en vez de "¡Hola, {{nombre}}!" — al confirmar (blur),
+  // eso quedaba guardado literal, matando el placeholder para siempre: el
+  // reporte de cualquier otra persona pasaba a saludar también "María".
+  // "textbox" no tiene interpolación (no hay data-raw), así que sigue usando
+  // el contenido real del DOM.
+  const initialHtml = kind === "copy" ? (el.getAttribute("data-raw") ?? el.innerHTML) : el.innerHTML;
   // Tiptap usa `element` como CONTENEDOR donde agrega su propio div editable
   // (.tiptap.ProseMirror) — no reemplaza lo que ya hubiera adentro. Sin este
   // vaciado, el texto original se quedaba como un nodo de texto suelto al
@@ -419,12 +488,107 @@ function mountRichEditor(
   });
 }
 
+// Bloques `[data-edit-block]` presentes en el documento, en orden visual
+// (top a bottom), sin duplicados — un bloque puede repetir su wrapper más de
+// una vez si el admin llegó a duplicar contenido a mano, se cuenta solo el
+// primero. Reutilizado tanto por la manija de tamaño de letra como por la de
+// reordenar arrastrando.
+function getOrderedBlockEls(doc: Document): { id: ReportBlockId; el: HTMLElement }[] {
+  const seen = new Set<ReportBlockId>();
+  const result: { id: ReportBlockId; el: HTMLElement }[] = [];
+  doc.querySelectorAll<HTMLElement>("[data-edit-block]").forEach((el) => {
+    const id = el.getAttribute("data-edit-block") as ReportBlockId;
+    if (seen.has(id)) return;
+    seen.add(id);
+    result.push({ id, el });
+  });
+  return result;
+}
+
+// Reordenar un bloque arrastrándolo directo sobre la vista en vivo — misma
+// idea que el panel "Orden y tamaños" (handleDrop en el componente), pero
+// sobre el documento real: mientras se arrastra, se dibuja una línea de
+// inserción entre los otros bloques a medida que el cursor cruza el punto
+// medio de cada uno; al soltar, se calcula el nuevo orden y se confirma con
+// `onCommitOrder` — el panel de arriba queda intacto como alternativa.
+function makeBlockReorderable(
+  doc: Document,
+  handle: HTMLElement,
+  blockId: ReportBlockId,
+  onCommitOrder: (order: ReportBlockId[]) => void,
+  onDragStart: () => void,
+  onDragEnd: () => void
+) {
+  let dragging = false;
+  let indicator: HTMLDivElement | null = null;
+  let lastTarget: { id: ReportBlockId; before: boolean } | null = null;
+
+  function clearIndicator() {
+    indicator?.remove();
+    indicator = null;
+  }
+
+  function showIndicatorAt(targetEl: HTMLElement, before: boolean) {
+    clearIndicator();
+    indicator = doc.createElement("div");
+    indicator.setAttribute("data-page-guide", "1"); // reutiliza el mismo filtro de "no medible / no persistente" que las guías de paginación
+    indicator.style.cssText = "height:3px;background:#00D6BC;border-radius:2px;margin:2px 0;pointer-events:none;";
+    targetEl.parentElement?.insertBefore(indicator, before ? targetEl : targetEl.nextSibling);
+  }
+
+  const onMove = (e: MouseEvent) => {
+    if (!dragging) return;
+    const blocks = getOrderedBlockEls(doc).filter((b) => b.id !== blockId);
+    const y = e.clientY;
+    const hit = blocks.find((b) => y < b.el.getBoundingClientRect().top + b.el.getBoundingClientRect().height / 2);
+    if (hit) {
+      showIndicatorAt(hit.el, true);
+      lastTarget = { id: hit.id, before: true };
+    } else if (blocks.length > 0) {
+      const last = blocks[blocks.length - 1];
+      showIndicatorAt(last.el, false);
+      lastTarget = { id: last.id, before: false };
+    }
+  };
+  const onUp = () => {
+    if (!dragging) return;
+    dragging = false;
+    doc.removeEventListener("mousemove", onMove);
+    doc.removeEventListener("mouseup", onUp);
+    clearIndicator();
+    onDragEnd();
+    if (lastTarget) {
+      const order = getOrderedBlockEls(doc).map((b) => b.id);
+      const from = order.indexOf(blockId);
+      if (from !== -1) {
+        order.splice(from, 1);
+        const to = order.indexOf(lastTarget.id);
+        if (to !== -1) {
+          order.splice(lastTarget.before ? to : to + 1, 0, blockId);
+          onCommitOrder(order);
+        }
+      }
+    }
+    lastTarget = null;
+  };
+  handle.addEventListener("mousedown", (e) => {
+    dragging = true;
+    onDragStart();
+    doc.addEventListener("mousemove", onMove);
+    doc.addEventListener("mouseup", onUp);
+    e.preventDefault();
+  });
+}
+
 function attachEditHandles(
   doc: Document,
   config: ReportTemplateConfig,
   setLogoOffset: (x: number, y: number) => void,
   setCompetenciasIconSize: (px: number) => void,
   setBlockFontScalePct: (block: ReportBlockId, pct: number) => void,
+  setBlocksOrder: (order: ReportBlockId[]) => void,
+  setPageMarginX: (value: number) => void,
+  setColorValue: (key: keyof ReportTemplateConfig["colors"], value: string) => void,
   updateTextBox: (id: string, patch: Partial<CustomTextBox>) => void,
   removeTextBox: (id: string) => void,
   updateCopyByPath: (path: string, value: string) => void,
@@ -433,34 +597,84 @@ function attachEditHandles(
   onFieldActivate: (field: ActiveRichField) => void,
   forceToolbarUpdate: () => void
 ) {
-  const logoEl = doc.querySelector<HTMLElement>('[data-edit="logo"]');
-  if (logoEl) makeDraggable(logoEl, config.logo.headerOffsetX, config.logo.headerOffsetY, setLogoOffset, "top-right", onEditStart, onEditEnd);
+  // Cada manija se instala en su propio try/catch: si UNA falla por algo
+  // específico de estos datos (ej. un elemento inesperado), las demás —
+  // incluida la más importante, montar Tiptap sobre el texto editable más
+  // abajo — no deben quedar canceladas en cadena. Antes, un solo error acá
+  // (todo corre sync, uno detrás de otro) abortaba silenciosamente TODO lo
+  // que seguía en esta función, sin ningún aviso en pantalla.
+  function safely(label: string, fn: () => void) {
+    try {
+      fn();
+    } catch (err) {
+      console.error(`[EvalReportTemplateEditor] fallo instalando "${label}":`, err);
+    }
+  }
 
-  const iconEl = doc.querySelector<HTMLElement>('[data-edit="icon"]');
-  if (iconEl) makeResizable(iconEl, config.blocks.competencias.iconSize, 12, 40, 0.15, setCompetenciasIconSize, onEditStart, onEditEnd);
+  safely("logo", () => {
+    const logoEl = doc.querySelector<HTMLElement>('[data-edit="logo"]');
+    if (logoEl) makeDraggable(logoEl, config.logo.headerOffsetX, config.logo.headerOffsetY, setLogoOffset, "top-right", onEditStart, onEditEnd);
+  });
 
-  // Un bloque puede repetir su título de sección más de una vez si el admin
-  // llegó a duplicar contenido a mano — se adjunta una sola manija por
-  // bloque (la del primer fragmento) para no duplicarlas.
-  const seenBlocks = new Set<ReportBlockId>();
-  doc.querySelectorAll<HTMLElement>("[data-edit-block]").forEach((blockEl) => {
-    const blockId = blockEl.getAttribute("data-edit-block") as ReportBlockId;
-    if (seenBlocks.has(blockId)) return;
-    seenBlocks.add(blockId);
-    const currentPct = Math.round(config.blocks[blockId].fontScale * 100);
-    makeResizable(blockEl, currentPct, 70, 150, 0.3, (pct) => setBlockFontScalePct(blockId, pct), onEditStart, onEditEnd);
+  const pageEl = doc.querySelector<HTMLElement>(".page");
+  safely("margen horizontal", () => {
+    if (pageEl) makePageMarginXHandle(pageEl, config.layout.pageMarginX, 0, 80, setPageMarginX, onEditStart, onEditEnd);
+  });
+
+  // Manijas de color ancladas a un elemento representativo ya visible — no
+  // requieren tocar `eval360ReportTemplate.ts`: se reutilizan selectores que
+  // ya existen (la primera barra "Tú" de un gráfico, el saludo/subtítulo del
+  // encabezado, la primera tarjeta). `primaryDark` no tiene un elemento
+  // representativo estable (solo aparece en el wordmark de respaldo cuando no
+  // hay logo subido) — se deja fuera, el swatch del toolbar sigue siendo la
+  // única vía para ese color.
+  safely("manijas de color", () => {
+    const firstBarEl = doc.querySelector<HTMLElement>("svg rect");
+    if (firstBarEl) makeColorHandle(doc, firstBarEl, "top-right", config.colors.primary, "Color primario (barras/acentos)", (v) => setColorValue("primary", v));
+    const greetingEl = doc.querySelector<HTMLElement>('[data-edit-copy="header.greeting"]');
+    if (greetingEl) makeColorHandle(doc, greetingEl, "top-right", config.colors.text, "Color de texto principal", (v) => setColorValue("text", v));
+    const subtitleEl = doc.querySelector<HTMLElement>('[data-edit-copy="header.subtitle"]');
+    if (subtitleEl) makeColorHandle(doc, subtitleEl, "top-right", config.colors.textSecondary, "Color de texto secundario", (v) => setColorValue("textSecondary", v));
+    const firstCardEl = doc.querySelector<HTMLElement>(".card");
+    if (firstCardEl) makeColorHandle(doc, firstCardEl, "top-left", config.colors.cardBorder, "Color de borde de tarjetas", (v) => setColorValue("cardBorder", v));
+    if (pageEl) makeColorHandle(doc, pageEl, "top-right", config.colors.background, "Color de fondo de página", (v) => setColorValue("background", v));
+  });
+
+  safely("ícono de competencias", () => {
+    const iconEl = doc.querySelector<HTMLElement>('[data-edit="icon"]');
+    if (iconEl) makeResizable(iconEl, config.blocks.competencias.iconSize, 12, 40, 0.15, setCompetenciasIconSize, onEditStart, onEditEnd);
+  });
+
+  // Una manija por bloque (no por fragmento — ver getOrderedBlockEls): tamaño
+  // de letra en la esquina inferior-derecha (ya existía) y arrastre para
+  // reordenar en la superior-izquierda (nuevo, misma idea que el panel
+  // "Orden y tamaños" pero directo sobre el documento). Cada bloque aparte,
+  // para que uno con datos raros no tumbe la manija de los demás.
+  getOrderedBlockEls(doc).forEach(({ id: blockId, el: blockEl }) => {
+    safely(`bloque ${blockId}`, () => {
+      const scaleConfig = config.blocks[blockId];
+      const currentPct = Math.round((scaleConfig?.fontScale ?? 1) * 100);
+      makeResizable(blockEl, currentPct, 70, 150, 0.3, (pct) => setBlockFontScalePct(blockId, pct), onEditStart, onEditEnd);
+
+      const gripHandle = createHandle(doc, "✥", "grab");
+      positionHandleAt(gripHandle, blockEl, "top-left");
+      doc.body.appendChild(gripHandle);
+      makeBlockReorderable(doc, gripHandle, blockId, setBlocksOrder, onEditStart, onEditEnd);
+    });
   });
 
   doc.querySelectorAll<HTMLElement>("[data-edit-textbox]").forEach((boxEl) => {
-    const id = boxEl.getAttribute("data-edit-textbox")!;
-    const box = config.customTextBoxes.find((b) => b.id === id);
-    if (!box) return;
+    safely("cuadro de texto libre", () => {
+      const id = boxEl.getAttribute("data-edit-textbox")!;
+      const box = config.customTextBoxes.find((b) => b.id === id);
+      if (!box) return;
 
-    makeDraggable(boxEl, box.x, box.y, (x, y) => updateTextBox(id, { x, y }), "top-left", onEditStart, onEditEnd);
-    makeWidthResizable(boxEl, box.width, 60, 700, (width) => updateTextBox(id, { width }), onEditStart, onEditEnd);
-    makeDeletable(boxEl, () => removeTextBox(id));
+      makeDraggable(boxEl, box.x, box.y, (x, y) => updateTextBox(id, { x, y }), "top-left", onEditStart, onEditEnd);
+      makeWidthResizable(boxEl, box.width, 60, 700, (width) => updateTextBox(id, { width }), onEditStart, onEditEnd);
+      makeDeletable(boxEl, () => removeTextBox(id));
 
-    mountRichEditor(boxEl, "textbox", id, (html) => updateTextBox(id, { text: html }), onFieldActivate, forceToolbarUpdate);
+      mountRichEditor(boxEl, "textbox", id, (html) => updateTextBox(id, { text: html }), onFieldActivate, forceToolbarUpdate);
+    });
   });
 
   // Todo el texto "de copy" de la plantilla (títulos, descripciones,
@@ -472,9 +686,11 @@ function attachEditHandles(
   // carga en el editor, para poder tocar el placeholder en vez del valor ya
   // resuelto de esta preview puntual.
   doc.querySelectorAll<HTMLElement>("[data-edit-copy]").forEach((el) => {
-    const path = el.getAttribute("data-edit-copy");
-    if (!path) return;
-    mountRichEditor(el, "copy", path, (html) => updateCopyByPath(path, html), onFieldActivate, forceToolbarUpdate);
+    safely("texto editable", () => {
+      const path = el.getAttribute("data-edit-copy");
+      if (!path) return;
+      mountRichEditor(el, "copy", path, (html) => updateCopyByPath(path, html), onFieldActivate, forceToolbarUpdate);
+    });
   });
 }
 
@@ -677,12 +893,16 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
   // cuanto terminaba el "cargando", como si todo hubiera vuelto a como estaba.
   const savedScrollRef = useRef(0);
 
-  // "live": HTML en vivo (arrastrable). "pdf": el PDF real (paginación exacta),
-  // generado bajo demanda ya que pasa por Puppeteer.
-  const [viewMode, setViewMode] = useState<"live" | "pdf">("live");
+  // El PDF real (paginación exacta, mismo motor que el reporte final) se
+  // muestra siempre lado a lado con la vista editable — antes solo se
+  // generaba bajo demanda (un botón) porque cada render lanzaba un Chromium
+  // nuevo; ahora que el browser se reutiliza entre requests (ver
+  // pdfBrowser.ts), se refresca solo en cada pausa de edición (ver el efecto
+  // de debounce más abajo), casi en tiempo real.
   const [realPdfUrl, setRealPdfUrl] = useState<string | null>(null);
   const [realPdfLoading, setRealPdfLoading] = useState(false);
   const realPdfUrlRef = useRef<string | null>(null);
+  const realPdfRequestIdRef = useRef(0);
 
   const [openBlock, setOpenBlock] = useState<ReportBlockId | null>(null);
   const dragIdRef = useRef<ReportBlockId | null>(null);
@@ -826,62 +1046,95 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
     return JSON.stringify(stripCopyAndText(prev)) === JSON.stringify(stripCopyAndText(next));
   }
   const prevConfigForReloadRef = useRef(config);
+  // true una vez que la vista en vivo ya pidió su primer HTML al menos una
+  // vez. Antes de este fix, si el config recién cargado (o el default, si
+  // todavía no se había guardado ninguna plantilla) no difería del anterior
+  // en nada más que texto, `isOnlyTextChange` daba `true` en la PRIMERA
+  // pasada también — y como todavía no existía ningún preview, el efecto se
+  // salía sin llamar nunca a `runPreview`: el panel quedaba en "Generando
+  // vista previa…" para siempre, hasta que el admin tocara un control que no
+  // fuera texto (un color, un margen). Este ref fuerza que la primera pasada
+  // real SIEMPRE dispare el request, sin importar qué tan parecido sea el
+  // config al default.
+  const hasRequestedPreviewRef = useRef(false);
 
-  // Debounce: regenerar la vista previa ~700ms después del último cambio
-  // que Tiptap no pueda reflejar por su cuenta (ver arriba). `isEditingRef`
-  // pospone mientras el admin está a mitad de un arrastre (logo/cuadro de
-  // texto/tamaño de bloque) — recargar destruiría el iframe (y con él los
-  // listeners de mousemove/mouseup ya atados al documento viejo) a mitad
-  // del gesto.
+  // Debounce: regenerar la vista previa en vivo ~700ms después del último
+  // cambio que Tiptap no pueda reflejar por su cuenta (ver arriba de
+  // isOnlyTextChange). `isEditingRef` pospone mientras el admin está a mitad
+  // de un arrastre (logo/cuadro de texto/tamaño de bloque) — recargar
+  // destruiría el iframe (y con él los listeners de mousemove/mouseup ya
+  // atados al documento viejo) a mitad del gesto.
   useEffect(() => {
     if (loading || !evaluateeEmail) return;
     const prev = prevConfigForReloadRef.current;
     prevConfigForReloadRef.current = config;
-    if (isOnlyTextChange(prev, config)) return;
+    const isFirst = !hasRequestedPreviewRef.current;
+    if (!isFirst && isOnlyTextChange(prev, config)) return;
     let timer: ReturnType<typeof setTimeout>;
     const schedule = (delay: number) => {
       timer = setTimeout(() => {
         if (isEditingRef.current) { schedule(400); return; }
+        hasRequestedPreviewRef.current = true;
         runPreview(config, evaluateeEmail);
       }, delay);
     };
-    schedule(700);
+    schedule(isFirst ? 0 : 700);
     return () => clearTimeout(timer);
   }, [config, evaluateeEmail, loading, runPreview]);
 
   useEffect(() => () => { if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current); }, []);
   useEffect(() => () => { if (realPdfUrlRef.current) URL.revokeObjectURL(realPdfUrlRef.current); }, []);
 
-  async function loadRealPdf() {
-    if (!evaluateeEmail) return;
+  // Genera el PDF real (mismo motor que el reporte final, con paginación
+  // exacta) para un config/evaluado dados. Antes esto solo corría al hacer
+  // clic manual en "Ver PDF real", porque cada llamada lanzaba un Chromium
+  // nuevo (costoso). Ahora que el browser se reutiliza entre requests (ver
+  // pdfBrowser.ts), también se usa desde el efecto de auto-refresco de abajo
+  // — así "Ver PDF real" deja de ser una foto bajo demanda y pasa a ser una
+  // vista que se mantiene sola, casi en tiempo real, fiel al PDF final.
+  const runRealPdf = useCallback(async (cfg: ReportTemplateConfig, email: string) => {
+    if (!email) return;
+    const myRequestId = ++realPdfRequestIdRef.current;
     setRealPdfLoading(true);
     try {
-      // Igual que al guardar: si hay un campo con foco (o recién enfocado)
-      // con cambios que Tiptap no confirmó todavía por blur, se aplican
-      // antes de pedir el PDF — sin esto, pedir el PDF justo después de
-      // escribir (sin haber hecho clic fuera del campo primero) generaba el
-      // PDF con el texto ANTERIOR al último cambio.
-      const toRender = flushActiveField(config);
       const res = await fetch("/api/evaluaciones360/report-template/preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ surveyId: evaluation.id, evaluateeEmail, config: toRender, format: "pdf" }),
+        body: JSON.stringify({ surveyId: evaluation.id, evaluateeEmail: email, config: cfg, format: "pdf" }),
       });
+      if (myRequestId !== realPdfRequestIdRef.current) return; // un refresco más nuevo ya está en curso
       if (!res.ok) return;
       const blob = await res.blob();
+      if (myRequestId !== realPdfRequestIdRef.current) return;
       const url = URL.createObjectURL(blob);
       if (realPdfUrlRef.current) URL.revokeObjectURL(realPdfUrlRef.current);
       realPdfUrlRef.current = url;
       setRealPdfUrl(url);
+    } catch {
+      // Silencioso: es un refresco automático de fondo, no debe interrumpir
+      // la edición. El próximo cambio de config lo vuelve a intentar.
     } finally {
-      setRealPdfLoading(false);
+      if (myRequestId === realPdfRequestIdRef.current) setRealPdfLoading(false);
     }
-  }
+  }, [evaluation.id]);
 
-  function handleViewModeChange(mode: "live" | "pdf") {
-    setViewMode(mode);
-    if (mode === "pdf") loadRealPdf();
-  }
+  // Auto-refresco del PDF real: a diferencia de la vista en vivo, acá SIEMPRE
+  // hay que regenerar ante cualquier cambio (también texto) — no existe un
+  // DOM editable que ya lo esté mostrando correctamente, como sí pasa con
+  // Tiptap en la vista en vivo. Mismo debounce/pausa-durante-arrastre que el
+  // efecto de arriba, pero sin el atajo de "solo cambió texto".
+  useEffect(() => {
+    if (loading || !evaluateeEmail) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const schedule = (delay: number) => {
+      timer = setTimeout(() => {
+        if (isEditingRef.current) { schedule(400); return; }
+        runRealPdf(config, evaluateeEmail);
+      }, delay);
+    };
+    schedule(700);
+    return () => clearTimeout(timer);
+  }, [config, evaluateeEmail, loading, runRealPdf]);
 
   const ZOOM_MIN = 0.3;
   const ZOOM_MAX = 2;
@@ -961,8 +1214,12 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
     setConfig((prev) => ({ ...prev, logo: { ...prev.logo, [kind]: dataUri } }));
   }
 
-  const setColor = (key: keyof ReportTemplateConfig["colors"], value: string) =>
-    setConfig((prev) => ({ ...prev, colors: { ...prev.colors, [key]: value } }));
+  // Memoizado (a diferencia de setLayout/setLogoAlign/etc., que siguen igual)
+  // porque además del swatch del toolbar, ahora también lo usan las manijas
+  // de color ancladas directo en el documento — necesita ser una dependencia
+  // estable de handleIframeLoad.
+  const setColor = useCallback((key: keyof ReportTemplateConfig["colors"], value: string) =>
+    setConfig((prev) => ({ ...prev, colors: { ...prev.colors, [key]: value } })), []);
   const setLayout = <K extends keyof ReportTemplateConfig["layout"]>(key: K, value: ReportTemplateConfig["layout"][K]) =>
     setConfig((prev) => ({ ...prev, layout: { ...prev.layout, [key]: value } }));
   const setLogoAlign = (align: ReportTemplateConfig["logo"]["align"]) =>
@@ -976,6 +1233,15 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
       ...prev,
       blocks: { ...prev.blocks, [block]: { ...prev.blocks[block], fontScale: pct / 100 } } as ReportTemplateConfig["blocks"],
     })), []);
+  // Mismo cambio de estado que `handleDrop` (panel "Orden y tamaños") — acá
+  // llamado desde la manija de arrastre directo sobre el documento.
+  const setBlocksOrder = useCallback((order: ReportBlockId[]) =>
+    setConfig((prev) => ({ ...prev, blocks: { ...prev.blocks, order } })), []);
+  // Mismo cambio de estado que `setLayout("pageMarginX", ...)` (input del
+  // toolbar) — memoizado aparte (setLayout no lo está) para poder listarlo
+  // como dependencia estable de `handleIframeLoad`.
+  const setPageMarginX = useCallback((value: number) =>
+    setConfig((prev) => ({ ...prev, layout: { ...prev.layout, pageMarginX: value } })), []);
   const setCompetenciasIconSize = useCallback((px: number) =>
     setConfig((prev) => ({ ...prev, blocks: { ...prev.blocks, competencias: { ...prev.blocks.competencias, iconSize: px } } })), []);
   const setCategoryIcon = (category: string, iconKey: string) =>
@@ -1008,7 +1274,10 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
     if (!doc) return;
     // Sin pagedjs de por medio, el DOM ya está completo y listo apenas
     // dispara "load" — no hace falta esperar ningún evento de repaginado.
-    attachEditHandles(doc, config, setLogoOffset, setCompetenciasIconSize, setBlockFontScalePct, updateTextBox, removeTextBox, updateCopyByPath, onEditStart, onEditEnd, onFieldActivate, forceToolbarUpdate);
+    attachEditHandles(
+      doc, config, setLogoOffset, setCompetenciasIconSize, setBlockFontScalePct, setBlocksOrder, setPageMarginX, setColor, updateTextBox, removeTextBox, updateCopyByPath,
+      onEditStart, onEditEnd, onFieldActivate, forceToolbarUpdate
+    );
     const height = doc.documentElement.scrollHeight;
     if (height > 0) setLiveIframeHeight(height);
     // Solo la primera vez: ajusta el zoom al ancho del panel para que se vea
@@ -1025,7 +1294,7 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
     requestAnimationFrame(() => {
       if (previewContainerRef.current) previewContainerRef.current.scrollTop = savedScrollRef.current;
     });
-  }, [config, setLogoOffset, setCompetenciasIconSize, setBlockFontScalePct, updateTextBox, removeTextBox, updateCopyByPath, onEditStart, onEditEnd, onFieldActivate, forceToolbarUpdate]);
+  }, [config, setLogoOffset, setCompetenciasIconSize, setBlockFontScalePct, setBlocksOrder, setPageMarginX, setColor, updateTextBox, removeTextBox, updateCopyByPath, onEditStart, onEditEnd, onFieldActivate, forceToolbarUpdate]);
 
   function handleDragStart(id: ReportBlockId) { dragIdRef.current = id; }
   function handleDragOver(e: React.DragEvent) { e.preventDefault(); }
@@ -1346,16 +1615,28 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
       {/* ── Barra de formato de texto — persistente, siempre visible arriba de la vista previa ── */}
       <RichToolbar activeField={activeFieldRef.current} />
 
-      {/* ── Vista previa en vivo — todo el ancho ─────────────────────────── */}
-      {/* Alto fijo y generoso (no solo un mínimo): una hoja A4 sola ya mide
-          ~1123px, así que con un alto chico no llegabas a ver ni el borde
-          de la primera hoja. El scroll real vive en el div de abajo. */}
+      {/* ── Vista previa: editable a la izquierda, PDF real a la derecha ──── */}
+      {/* Ya no existe un algoritmo propio que intente adivinar los cortes de
+          página en la vista en vivo — se intentó (ver commits anteriores) y
+          resultó ser una fuente recurrente de bugs, porque reproducir a mano
+          la fragmentación real de Chromium (colapso de márgenes, huérfanos,
+          redondeo de subpíxeles...) es, en la práctica, una batalla que no se
+          gana del todo. La paginación exacta SOLO se confía al PDF real de la
+          derecha (Puppeteer, el mismo motor que genera el reporte final) —
+          nunca se aproxima ni se dibuja a mano. */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col h-[85vh]">
         <div className="bg-slate-50 border-b border-slate-200 px-4 py-2.5 flex items-center gap-3">
           <span className="text-xs font-bold text-[#1e293b]">Vista previa —</span>
           <select
             value={evaluateeEmail}
-            onChange={(e) => setEvaluateeEmail(e.target.value)}
+            onChange={(e) => {
+              const email = e.target.value;
+              setEvaluateeEmail(email);
+              // Refresco inmediato del PDF real al cambiar de persona — no
+              // hace falta esperar los ~700ms del debounce pensado para
+              // pausas de edición, esto es una acción discreta.
+              runRealPdf(flushActiveField(config), email);
+            }}
             className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white text-[#1e293b] outline-none focus:border-primary cursor-pointer flex-1 min-w-0"
           >
             {evaluatees.map((p) => (
@@ -1363,77 +1644,69 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
             ))}
           </select>
           {(previewLoading || realPdfLoading) && <div className="w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full animate-spin shrink-0" />}
-          {viewMode === "live" && (
-            <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1 shrink-0">
-              <button onClick={handleZoomOut} disabled={zoom <= ZOOM_MIN} className="p-1 rounded-md text-[#64748b] hover:text-primary disabled:opacity-30" title="Alejar">
-                <ZoomOut className="w-3.5 h-3.5" />
-              </button>
-              <span className="text-[10px] font-bold text-[#1e293b] w-9 text-center tabular-nums">{Math.round(zoom * 100)}%</span>
-              <button onClick={handleZoomIn} disabled={zoom >= ZOOM_MAX} className="p-1 rounded-md text-[#64748b] hover:text-primary disabled:opacity-30" title="Acercar">
-                <ZoomIn className="w-3.5 h-3.5" />
-              </button>
-              <button onClick={handleZoomFit} className="p-1 rounded-md text-[#64748b] hover:text-primary" title="Ajustar la hoja al ancho del panel">
-                <Maximize2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
-          <div className="flex gap-1 bg-slate-100 rounded-lg p-1 shrink-0">
-            <button
-              onClick={() => handleViewModeChange("live")}
-              className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold transition-colors ${viewMode === "live" ? "bg-white shadow-sm text-primary" : "text-[#94a3b8] hover:text-[#64748b]"}`}
-            >
-              <Eye className="w-3 h-3" /> Vista en vivo
+          <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1 shrink-0">
+            <button onClick={handleZoomOut} disabled={zoom <= ZOOM_MIN} className="p-1 rounded-md text-[#64748b] hover:text-primary disabled:opacity-30" title="Alejar (panel izquierdo)">
+              <ZoomOut className="w-3.5 h-3.5" />
             </button>
-            <button
-              onClick={() => handleViewModeChange("pdf")}
-              className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold transition-colors ${viewMode === "pdf" ? "bg-white shadow-sm text-primary" : "text-[#94a3b8] hover:text-[#64748b]"}`}
-            >
-              <FileText className="w-3 h-3" /> Ver PDF real
+            <span className="text-[10px] font-bold text-[#1e293b] w-9 text-center tabular-nums">{Math.round(zoom * 100)}%</span>
+            <button onClick={handleZoomIn} disabled={zoom >= ZOOM_MAX} className="p-1 rounded-md text-[#64748b] hover:text-primary disabled:opacity-30" title="Acercar (panel izquierdo)">
+              <ZoomIn className="w-3.5 h-3.5" />
+            </button>
+            <button onClick={handleZoomFit} className="p-1 rounded-md text-[#64748b] hover:text-primary" title="Ajustar la hoja al ancho del panel">
+              <Maximize2 className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
-        {viewMode === "live" && (
-          <p className="text-[10px] text-[#94a3b8] px-4 py-1.5 bg-amber-50 border-b border-amber-100">
-            Haz clic sobre cualquier texto para editarlo — la barra de arriba controla el formato del campo activo. Arrastra el logo y
-            las esquinas de los bloques para ajustar posición/tamaño. Esta vista muestra el documento completo, seguido — usa
-            &ldquo;Ver PDF real&rdquo; para confirmar exactamente dónde caen los cortes de página.
-          </p>
-        )}
-        {/* overflow-y-auto vive aquí, no en el iframe: en "live" el iframe
-            se dimensiona a la altura real de sus hojas paginadas (ver
-            liveIframeHeight) y este div hace un solo scroll continuo sobre
-            todas ellas — así se ven los bordes/gaps entre hojas en vez de
-            recortar todo dentro de una ventana fija. En "pdf" el iframe
-            sigue absoluto/h-full porque el visor nativo de PDF ya trae su
-            propio scroll interno. */}
-        <div ref={previewContainerRef} className="flex-1 relative overflow-y-auto bg-slate-100">
-          {viewMode === "pdf" ? (
-            realPdfUrl ? (
-              <iframe key={realPdfUrl} src={realPdfUrl} title="PDF real del reporte" className="w-full h-full border-none absolute inset-0" style={{ minHeight: "600px" }} />
-            ) : (
-              <div className="flex items-center justify-center h-full p-8 text-center text-sm text-[#94a3b8]">Generando PDF…</div>
-            )
-          ) : previewError ? (
-            <div className="flex items-center justify-center h-full p-8 text-center">
-              <p className="text-sm text-red-500 font-semibold">{previewError}</p>
+        <p className="text-[10px] text-[#94a3b8] px-4 py-1.5 bg-amber-50 border-b border-amber-100">
+          Izquierda: haz clic sobre cualquier texto para editarlo — la barra de arriba controla el formato del campo activo. Arrastra el
+          logo, los bloques y los márgenes para ajustar posición/tamaño — documento continuo, sin cortes de página, para que la edición
+          sea instantánea. Derecha: el PDF real, con la paginación exacta — se actualiza solo, unos segundos después de tu última edición.
+        </p>
+        <div className="flex-1 flex overflow-hidden">
+          <div className="w-1/2 flex flex-col border-r border-slate-200 min-w-0">
+            <div className="px-3 py-1 bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-[#94a3b8] flex items-center gap-1 shrink-0">
+              <Eye className="w-3 h-3" /> Editar (vivo)
             </div>
-          ) : previewUrl ? (
-            // El iframe mantiene su tamaño real (sin escalar) para que pagedjs
-            // mida/pagine igual siempre; el zoom se aplica con transform:scale
-            // sobre él, y este div wrapper se dimensiona ya escalado para que
-            // el scroll del contenedor refleje el tamaño visual, no el real.
-            <div style={{ width: pageWidthPx * zoom, height: liveIframeHeight * zoom, margin: "0 auto" }}>
-              <iframe
-                key={previewUrl} ref={iframeRef} src={previewUrl} onLoad={handleIframeLoad}
-                title="Vista previa del reporte" className="border-none block origin-top-left"
-                style={{ width: pageWidthPx, height: liveIframeHeight, transform: `scale(${zoom})` }}
-              />
+            {/* overflow-y-auto vive aquí, no en el iframe: el iframe se
+                dimensiona a la altura real del documento (ver
+                liveIframeHeight) y este div hace el scroll — así se ve
+                completo en vez de recortarse dentro de una ventana fija. */}
+            <div ref={previewContainerRef} className="flex-1 relative overflow-y-auto bg-slate-100">
+              {previewError ? (
+                <div className="flex items-center justify-center h-full p-8 text-center">
+                  <p className="text-sm text-red-500 font-semibold">{previewError}</p>
+                </div>
+              ) : previewUrl ? (
+                // El zoom se aplica con transform:scale sobre el iframe (que
+                // mantiene su tamaño real para medir bien), y este div
+                // wrapper se dimensiona ya escalado para que el scroll del
+                // contenedor refleje el tamaño visual, no el real.
+                <div style={{ width: pageWidthPx * zoom, height: liveIframeHeight * zoom, margin: "0 auto" }}>
+                  <iframe
+                    key={previewUrl} ref={iframeRef} src={previewUrl} onLoad={handleIframeLoad}
+                    title="Vista previa del reporte" className="border-none block origin-top-left"
+                    style={{ width: pageWidthPx, height: liveIframeHeight, transform: `scale(${zoom})` }}
+                  />
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-full p-8 text-center text-sm text-[#94a3b8]">
+                  {evaluatees.length === 0 ? "Esta encuesta todavía no tiene evaluaciones enviadas." : "Generando vista previa…"}
+                </div>
+              )}
             </div>
-          ) : (
-            <div className="flex items-center justify-center h-full p-8 text-center text-sm text-[#94a3b8]">
-              {evaluatees.length === 0 ? "Esta encuesta todavía no tiene evaluaciones enviadas." : "Generando vista previa…"}
+          </div>
+          <div className="w-1/2 flex flex-col min-w-0">
+            <div className="px-3 py-1 bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-[#94a3b8] flex items-center gap-1 shrink-0">
+              <FileText className="w-3 h-3" /> PDF real
             </div>
-          )}
+            <div className="flex-1 relative overflow-y-auto bg-slate-100">
+              {realPdfUrl ? (
+                <iframe key={realPdfUrl} src={realPdfUrl} title="PDF real del reporte" className="w-full h-full border-none absolute inset-0" style={{ minHeight: "600px" }} />
+              ) : (
+                <div className="flex items-center justify-center h-full p-8 text-center text-sm text-[#94a3b8]">Generando PDF…</div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
