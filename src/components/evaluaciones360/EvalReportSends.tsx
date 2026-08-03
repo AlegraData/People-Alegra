@@ -19,10 +19,15 @@ interface ReportPerson {
 type RowProgress = { status: "idle" | "sending" | "sent" | "error"; error?: string };
 
 // Envía una persona a la vez con un timeout razonable — un render de PDF
-// colgado (Puppeteer) no debe dejar la sesión del admin esperando para siempre.
+// colgado (Puppeteer) no debe dejar la sesión del admin esperando para
+// siempre. 60s (no 30s): a diferencia de la vista previa (1 render), este
+// envío sí usa la búsqueda completa de hasta 7 renders para dejar el footer
+// exacto, y en producción (1 vCPU) un reporte largo puede tardar bastante
+// más que en desarrollo — mejor esperar de más que marcar "falló" un envío
+// que en realidad sí llegó.
 async function sendOne(evaluationId: string, evaluateeEmail: string): Promise<{ ok: boolean; error?: string }> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30_000);
+  const timeout = setTimeout(() => controller.abort(), 60_000);
   try {
     const res = await fetch(`/api/evaluaciones360/surveys/${evaluationId}/report-sends`, {
       method: "POST",
