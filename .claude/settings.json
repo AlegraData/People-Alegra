@@ -8,10 +8,29 @@
       "PowerShell(cd \"C:\\\\Users\\\\crist\\\\Documents\\\\Alegra\\\\People Hub\"; npx tsc --noEmit 2>&1 | Where-Object { $_ -notmatch \"evaluationChangeRequest\" -and $_ -notmatch \"validator.ts\" })",
       "Bash(node -e \"const { Inbox } = require\\('lucide-react'\\); console.log\\(typeof Inbox\\);\")",
       "Bash(xargs grep -l \"duplicate\\\\|clone\")",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(rm -f \"c:/Users/crist/Documents/Alegra/People Hub/.tmp-pdf-render/shot-\"*.png)",
+      "Bash(npx --yes tsx .tmp-pdf-render/gen-full.mts)",
+      "Bash(cp \"c:/Users/crist/Documents/Alegra/People Hub/52ac00c8-4513-4a02-a9de-273bcea19f76.pdf\" \"c:/Users/crist/Documents/Alegra/People Hub/.tmp-pdf-render/input.pdf\")",
+      "Bash(node measure-gaps.mjs)",
+      "Bash(mkdir -p \"c:/Users/crist/Documents/Alegra/People Hub/.tmp-header-fix\")",
+      "Bash(cp public/report-icons/header-bg.png .tmp-header-fix/header-bg-original-backup.png)",
+      "Bash(cp .tmp-header-fix/header-bg-transparent.png public/report-icons/header-bg.png)",
+      "Bash(npx --yes tsx .tmp-pdf-render/gen-real-icons.mts)",
+      "Bash(npx --yes tsx .tmp-size-test/gen.mts)",
+      "Bash(node .tmp-size-test/shoot.mjs)",
+      "Bash(npx --yes tsx .tmp-size-test/check-live.mts)",
+      "Bash(./node_modules/.bin/next lint *)",
+      "Bash(node .tmp-test-edit.mjs)",
+      "Bash(node .tmp-test-path.mjs)",
+      "Bash(node .tmp-test-linebreak.mjs)",
+      "Bash(node .tmp-test-linebreak2.mjs)",
+      "Bash(node .tmp-test-editor.mjs)",
+      "Bash(node .tmp-extract-pdf-text.mjs)"
     ],
     "additionalDirectories": [
-      "C:\\Users\\crist\\Documents\\Alegra\\People Hub\\src\\app\\api\\evaluaciones360\\surveys\\[id]"
+      "C:\\Users\\crist\\Documents\\Alegra\\People Hub\\src\\app\\api\\evaluaciones360\\surveys\\[id]",
+      "c:\\Users\\crist\\Documents\\Alegra\\People Hub\\.tmp-pdf-render"
     ]
   }
 }

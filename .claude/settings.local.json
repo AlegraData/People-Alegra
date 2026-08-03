@@ -3,7 +3,24 @@
     "allow": [
       "Bash(npm run *)",
       "Bash(git commit -m ' *)",
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "Bash(node .tmp-fontsize-test/run.mjs)",
+      "Bash(node .tmp-verify-fontsize/run.mjs)",
+      "Bash(node .tmp-verify-fontsize/check-pdf.mjs)",
+      "Bash(node .tmp-header-gap/screenshot.mjs)",
+      "Bash(node .tmp-chart-bug/check-svgs.mjs)",
+      "Bash(node .tmp-chart-bug/check-after-mount.mjs)",
+      "Bash(sed 's/preview\\\\.html/preview-edited.html/' .tmp-chart-bug/check-svgs.mjs)",
+      "Bash(node .tmp-chart-bug/check-svgs-edited.mjs)",
+      "Bash(node .tmp-chart-bug/scan-variants.mjs)",
+      "Bash(node .tmp-chart-bug2/scan.mjs)",
+      "Bash(node .tmp-chart-bug2/repro-live.mjs)",
+      "Bash(node -e ' *)",
+      "Bash(grep -n '\"@/\\\\*\"' -A2 tsconfig.json)",
+      "Bash(node .tmp-e2e-verify/run.mjs)",
+      "Bash(node .tmp-e2e-verify/check-svgs.mjs)",
+      "Bash(node -e \"console.log\\(require.resolve\\('playwright'\\)\\)\")",
+      "Bash(node -e \"const m = require\\('lucide-react'\\); console.log\\(typeof m.AlignJustify, typeof m.RemoveFormatting, typeof m.Superscript, typeof m.Subscript\\)\")"
     ]
   }
 }
