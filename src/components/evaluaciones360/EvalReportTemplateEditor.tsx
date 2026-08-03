@@ -1572,6 +1572,7 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
                 ["cardBorder", "Borde de tarjetas"],
                 ["benchmarkGray", "Gris de barras (comparativo/ranking)"],
                 ["commentBg", "Fondo de comentarios"],
+                ["commentText", "Texto de comentarios"],
               ] as const).map(([key, label]) => (
                 <input
                   key={key} type="color" title={label} value={config.colors[key]}

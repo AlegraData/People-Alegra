@@ -16,6 +16,8 @@ export interface ReportTemplateColors {
   benchmarkGray: string;
   /** Fondo de cada tarjeta de comentario individual (el bloque de comentarios). */
   commentBg: string;
+  /** Color del texto de cada comentario (la cita en sí, no el título/intro del bloque). */
+  commentText: string;
 }
 
 export type LogoAlign = "left" | "center" | "right";
@@ -145,6 +147,7 @@ export const DEFAULT_TEMPLATE_CONFIG: ReportTemplateConfig = {
     cardBorder: "#e2e8f0",
     benchmarkGray: "#94A3B8",
     commentBg: "#f8fafc",
+    commentText: "#64748b",
   },
   logo: {
     logoDataUri: null,

@@ -197,6 +197,7 @@ interface Theme {
   cardBorder: string;
   benchmarkGray: string;
   commentBg: string;
+  commentText: string;
   scale: number;
   cardPadding: number;
   cardRadius: number;
@@ -219,6 +220,7 @@ function buildTheme(config: ReportTemplateConfig): Theme {
     cardBorder: config.colors.cardBorder,
     benchmarkGray: config.colors.benchmarkGray,
     commentBg: config.colors.commentBg,
+    commentText: config.colors.commentText,
     scale: densityScale(config.layout.density),
     cardPadding: config.layout.cardPadding,
     cardRadius: config.layout.cardRadius,
@@ -428,7 +430,7 @@ function commentSection(theme: Theme, blockScale: number, cardTitle: string, que
       <div ${editAttrs("comentarios.cardTitle", cardTitle)} style="font-weight:800;font-size:${titleSize}px;color:${theme.text};text-align:center;margin:0 0 6px;">${cardTitle}</div>
       <div ${editAttrs("comentarios.questionIntro", questionIntroTemplate, renderWithBoldRaw(questionIntroTemplate, "pregunta", c.questionText))} style="font-size:${descSize}px;color:${theme.textSecondary};text-align:center;margin:0 0 10px;">${questionIntro}</div>
       <div style="display:flex;flex-direction:column;gap:7px;">
-        ${c.answers.map((a) => `<p style="background:${theme.commentBg};border-radius:10px;padding:10px 13px;font-size:${textSize}px;color:${theme.textSecondary};font-style:italic;line-height:1.45;margin:0;break-inside:avoid;orphans:3;widows:3;">&ldquo;${esc(a)}&rdquo;</p>`).join("")}
+        ${c.answers.map((a) => `<p style="background:${theme.commentBg};border-radius:10px;padding:10px 13px;font-size:${textSize}px;color:${theme.commentText};font-style:italic;line-height:1.45;margin:0;break-inside:avoid;orphans:3;widows:3;">&ldquo;${esc(a)}&rdquo;</p>`).join("")}
       </div>
     </div>`;
 }
