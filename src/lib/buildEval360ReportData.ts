@@ -7,7 +7,7 @@
  * `icons` se le pasa a `buildReportHtml()` después.
  */
 import { normalizeQuestions } from "@/types/evaluaciones360";
-import type { EvalType, Eval360Question, CustomReportSection } from "@/types/evaluaciones360";
+import type { EvalType, Eval360Question, CustomReportSection, CommentGroup, BehaviorGroup } from "@/types/evaluaciones360";
 import { computeSurveyBenchmarks, computeCustomSectionBenchmarks, computeMyCustomSectionScore } from "./eval360Benchmarks";
 import { filterJunkComments } from "./filterJunkComments";
 import type {
@@ -63,6 +63,15 @@ export function buildEval360ReportData(params: {
   teamByEmail: Map<string, string | null>;
   icons?: Eval360ReportIcons;
   templateConfig?: ReportTemplateConfig;
+  /** Agrupa preguntas rating equivalentes de distintos tipos (ej. "Compromiso"
+   *  = una pregunta de ascendente + una de descendente + una de paralela)
+   *  bajo un solo nombre en "Comportamientos evaluados" y "Resultados
+   *  individuales por comportamiento", en vez de una fila por pregunta. */
+  behaviorGroupsRaw?: unknown;
+  /** Agrupa preguntas abiertas equivalentes de distintos tipos (ej. "mayor
+   *  fortaleza" preguntada distinto en ascendente/descendente/paralela) bajo
+   *  un solo título de Comentarios, en vez de una tarjeta por tipo. */
+  commentGroupsRaw?: unknown;
 }): Eval360ReportData | null {
   const { submitted, teamByEmail, icons, templateConfig } = params;
   const evaluateeEmail = params.evaluateeEmail.trim().toLowerCase();
@@ -72,6 +81,8 @@ export function buildEval360ReportData(params: {
 
   const questionsMap = normalizeQuestions(params.questionsRaw);
   const reportSections = (Array.isArray(params.reportSectionsRaw) ? params.reportSectionsRaw : []) as CustomReportSection[];
+  const behaviorGroups = (Array.isArray(params.behaviorGroupsRaw) ? params.behaviorGroupsRaw : []) as BehaviorGroup[];
+  const commentGroups = (Array.isArray(params.commentGroupsRaw) ? params.commentGroupsRaw : []) as CommentGroup[];
   const myTeam = teamByEmail.get(evaluateeEmail) ?? null;
 
   const benchmarks = computeSurveyBenchmarks(submitted, questionsMap, teamByEmail);
@@ -127,30 +138,91 @@ export function buildEval360ReportData(params: {
     });
   });
 
-  // Ranking completo de comportamientos (preguntas únicas por texto).
-  const seenText = new Set<string>();
-  const questionRanking: QuestionRankingRow[] = [];
-  peerQuestions.filter((q) => q.type === "rating" && myPeerQ.has(q.id)).forEach((q) => {
-    if (seenText.has(q.text)) return;
-    seenText.add(q.text);
-    questionRanking.push({
-      text: q.text,
-      category: q.category,
-      mine: myPeerQ.get(q.id) ?? 0,
-      alegra: benchmarks.alegraQuestionAvg.get(q.id) ?? 0,
+  // "Comportamientos evaluados" y "Resultados individuales por
+  // comportamiento": por pregunta individual (default, sin grupos definidos),
+  // o agrupados según los `behaviorGroups` que el admin arme a mano en
+  // Reportes → Configuración (ej. "Compromiso" = una pregunta de ascendente +
+  // una de descendente + una de paralela, elegidas explícitamente — no el
+  // campo `category` de la pregunta). El score de cada grupo se calcula
+  // exactamente igual que una sección personalizada (peso propio de cada
+  // pregunta mapeada, ver computeCustomSectionBenchmarks/
+  // computeMyCustomSectionScore) — un `BehaviorGroup` no es más que una
+  // `CustomReportSection` armada con el picker "una pregunta por tipo".
+  let questionRanking: QuestionRankingRow[];
+  let strengths: string[];
+  let improvements: string[];
+
+  if (behaviorGroups.length > 0) {
+    const grouped: QuestionRankingRow[] = [];
+    behaviorGroups.forEach((group) => {
+      const entries = group.entries
+        .map(({ type, questionId }) => {
+          const q = (questionsMap[type] ?? []).find((q) => q.id === questionId && q.type === "rating");
+          return q ? { questionId, weight: q.weight } : null;
+        })
+        .filter((e): e is { questionId: string; weight: number } => e !== null);
+      if (entries.length === 0) return;
+      const pseudoSection: CustomReportSection = { id: group.id, name: group.title, entries };
+      const bench = computeCustomSectionBenchmarks(pseudoSection, submitted, questionsMap, teamByEmail);
+      if (!bench) return;
+      const myScore = computeMyCustomSectionScore(pseudoSection, peerAssignments, peerQuestions);
+      if (myScore === null) return;
+      grouped.push({ text: group.title, category: group.title, mine: myScore, alegra: bench.alegraAvg });
     });
-  });
-  questionRanking.sort((a, b) => b.mine - a.mine);
+    // Resultados individuales por comportamiento: TODOS los grupos, siempre descendente.
+    questionRanking = [...grouped].sort((a, b) => b.mine - a.mine);
+    // Fortalezas y Puntos de mejora: solo los 5 más relevantes de cada lado
+    // (igual que sin grupos) — de mayor a menor para fortalezas, de menor a
+    // mayor para puntos de mejora (#1 = el grupo que más hay que mejorar).
+    strengths = questionRanking.slice(0, 5).map((r) => r.text);
+    improvements = [...questionRanking].reverse().slice(0, 5).map((r) => r.text);
+  } else {
+    const seenText = new Set<string>();
+    const ranking: QuestionRankingRow[] = [];
+    peerQuestions.filter((q) => q.type === "rating" && myPeerQ.has(q.id)).forEach((q) => {
+      if (seenText.has(q.text)) return;
+      seenText.add(q.text);
+      ranking.push({
+        text: q.text,
+        category: q.category,
+        mine: myPeerQ.get(q.id) ?? 0,
+        alegra: benchmarks.alegraQuestionAvg.get(q.id) ?? 0,
+      });
+    });
+    ranking.sort((a, b) => b.mine - a.mine);
+    questionRanking = ranking;
+    strengths = ranking.slice(0, 5).map((r) => r.text);
+    improvements = ranking.slice(-5).reverse().map((r) => r.text);
+  }
 
-  const strengths = questionRanking.slice(0, 5).map((r) => r.text);
-  const improvements = questionRanking.slice(-5).reverse().map((r) => r.text);
-
-  // Comentarios: uno por (tipo, pregunta abierta) con respuestas, filtrando basura.
+  // Comentarios. Primero los grupos definidos por el admin (ej. "¿Cuál es su
+  // mayor fortaleza actualmente?" combinando la pregunta equivalente de
+  // ascendente+descendente+paralela en una sola tarjeta, con el título del
+  // grupo en vez del texto literal de cada tipo). Autoevaluación queda
+  // excluida siempre — un grupo nunca puede apuntar a esa asignación.
+  // Cualquier pregunta abierta que NO quede dentro de ningún grupo sigue el
+  // comportamiento de siempre: una tarjeta por (tipo, pregunta).
   const comments: ReportComment[] = [];
+  const groupedQuestionIds = new Set<string>();
+
+  commentGroups.forEach((group) => {
+    const answers: string[] = [];
+    group.entries.forEach(({ type, questionId }) => {
+      if (!PEER_TYPES.includes(type)) return;
+      groupedQuestionIds.add(questionId);
+      peerAssignments.filter((a) => a.evaluationType === type).forEach((a) => {
+        const val = ((a.finalAnswers ?? {}) as Record<string, unknown>)[questionId];
+        if (typeof val === "string" && val.trim()) answers.push(val.trim());
+      });
+    });
+    const kept = filterJunkComments(answers) as string[];
+    if (kept.length > 0) comments.push({ questionText: group.title, answers: kept });
+  });
+
   PEER_TYPES.forEach((type) => {
     const typeAssignments = peerAssignments.filter((a) => a.evaluationType === type);
     if (typeAssignments.length === 0) return;
-    (questionsMap[type] ?? []).filter((q) => q.type !== "rating").forEach((q) => {
+    (questionsMap[type] ?? []).filter((q) => q.type !== "rating" && !groupedQuestionIds.has(q.id)).forEach((q) => {
       const answers: string[] = [];
       typeAssignments.forEach((a) => {
         const val = ((a.finalAnswers ?? {}) as Record<string, unknown>)[q.id];

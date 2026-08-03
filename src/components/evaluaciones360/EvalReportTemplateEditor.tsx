@@ -1,11 +1,24 @@
 "use client";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Check, Image as ImageIcon, Trash2, Info, GripVertical, AlignLeft, AlignCenter, AlignRight, ChevronDown, Eye, FileText, Plus } from "lucide-react";
+import {
+  Check, Image as ImageIcon, Trash2, Info, GripVertical, AlignLeft, AlignCenter, AlignRight, AlignJustify, ChevronDown,
+  Eye, FileText, Plus, ZoomIn, ZoomOut, Maximize2, Settings2, Type,
+  Bold as BoldIcon, Italic as ItalicIcon, Underline as UnderlineIcon, Strikethrough, List, ListOrdered, Quote,
+  IndentIncrease, IndentDecrease, Link2, X, Palette, Highlighter, RemoveFormatting,
+} from "lucide-react";
 import type { Evaluation360 } from "@/types/evaluaciones360";
 import { normalizeQuestions } from "@/types/evaluaciones360";
 import type { ReportTemplateConfig, ReportTemplateDensity, CustomTextBox } from "@/lib/reportTemplateConfig";
 import type { ReportBlockId } from "@/lib/reportTemplateConfig";
 import { DEFAULT_TEMPLATE_CONFIG } from "@/lib/reportTemplateConfig";
+import { Editor, Extension } from "@tiptap/core";
+import StarterKit from "@tiptap/starter-kit";
+import UnderlineExtension from "@tiptap/extension-underline";
+import { Color } from "@tiptap/extension-color";
+import { TextStyle } from "@tiptap/extension-text-style";
+import Highlight from "@tiptap/extension-highlight";
+import LinkExtension from "@tiptap/extension-link";
+import TextAlign from "@tiptap/extension-text-align";
 
 interface Props {
   evaluation: Evaluation360;
@@ -37,26 +50,6 @@ const CATEGORY_ICON_OPTIONS: { value: string; label: string; file: string }[] = 
   { value: "trabajoEquipo", label: "Personas", file: "trabajo-equipo.png" },
 ];
 
-function CopyField({ label, value, onChange, hint, multiline }: { label: string; value: string; onChange: (v: string) => void; hint?: string; multiline?: boolean }) {
-  return (
-    <div>
-      <label className="block text-[10px] font-bold text-[#64748b] mb-1">{label}</label>
-      {multiline ? (
-        <textarea
-          value={value} onChange={(e) => onChange(e.target.value)} rows={2}
-          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 outline-none focus:border-primary resize-none"
-        />
-      ) : (
-        <input
-          type="text" value={value} onChange={(e) => onChange(e.target.value)}
-          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 outline-none focus:border-primary"
-        />
-      )}
-      {hint && <p className="text-[9px] text-[#94a3b8] mt-1">{hint}</p>}
-    </div>
-  );
-}
-
 function fileToDataUri(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -65,6 +58,129 @@ function fileToDataUri(file: File): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
+
+// Utilidades genéricas de ruta sobre `config.copy`: en vez de una función
+// "setXxxCopy" por cada campo (título/descripción/etiqueta de cada bloque —
+// eran ~15 antes), un solo par get/set por ruta tipo "comparativos.team.desc".
+// El shape de ReportCopyConfig es fijo y poco profundo, así que un `any`
+// contenido acá es más simple y seguro que tipar un path genérico recursivo.
+// "::" separa un prefijo de ruta normal de una clave dinámica (la única hoy:
+// categoryDescriptions, indexado por el texto de la categoría, que puede
+// traer espacios/tildes pero no “::”).
+function getByPath(obj: unknown, segments: string[]): unknown {
+  return segments.reduce<unknown>((o, k) => (o as Record<string, unknown> | undefined)?.[k], obj);
+}
+function setByPath(obj: unknown, segments: string[], value: unknown): unknown {
+  if (segments.length === 0) return value;
+  const [head, ...rest] = segments;
+  const record = (obj as Record<string, unknown> | undefined) ?? {};
+  return { ...record, [head]: setByPath(record[head], rest, value) };
+}
+
+// ── Extensiones de Tiptap propias del reporte ───────────────────────────────
+// Sangría e interlineado por párrafo — Tiptap no las trae de fábrica (a
+// diferencia de negrita/color/listas). Ambas se guardan como `style` inline
+// sobre el <p> (margin-left / line-height), así que el PDF real (Puppeteer)
+// las respeta igual que la vista en vivo, sin CSS aparte. Se verificó con una
+// prueba aislada que cuando las DOS aplican al mismo párrafo, Tiptap combina
+// ambos `style` en uno solo (no se pisan entre sí), y que el HTML resultante
+// se vuelve a leer correctamente (round-trip) al recargar la vista previa.
+const INDENT_STEP = 24;
+const MAX_INDENT = 6;
+
+const IndentExtension = Extension.create({
+  name: "reportIndent",
+  addOptions() {
+    return { types: ["paragraph"] };
+  },
+  addGlobalAttributes() {
+    return [{
+      types: this.options.types,
+      attributes: {
+        indent: {
+          default: 0,
+          parseHTML: (element: HTMLElement) => {
+            const ml = parseFloat(element.style.marginLeft || "0");
+            return ml > 0 ? Math.round(ml / INDENT_STEP) : 0;
+          },
+          renderHTML: (attributes: Record<string, unknown>) => {
+            const level = attributes.indent as number;
+            if (!level) return {};
+            return { style: `margin-left: ${level * INDENT_STEP}px` };
+          },
+        },
+      },
+    }];
+  },
+});
+
+const LineHeightExtension = Extension.create({
+  name: "reportLineHeight",
+  addOptions() {
+    return { types: ["paragraph"] };
+  },
+  addGlobalAttributes() {
+    return [{
+      types: this.options.types,
+      attributes: {
+        lineHeight: {
+          default: null,
+          parseHTML: (element: HTMLElement) => element.style.lineHeight || null,
+          renderHTML: (attributes: Record<string, unknown>) => {
+            const lh = attributes.lineHeight as string | null;
+            if (!lh) return {};
+            return { style: `line-height: ${lh}` };
+          },
+        },
+      },
+    }];
+  },
+});
+
+// Tamaño de letra: a diferencia de sangría/interlineado (atributos de todo
+// el párrafo), el tamaño se aplica a la SELECCIÓN — por eso es un atributo
+// de la marca "textStyle" (la misma que ya usa Color), no del nodo párrafo:
+// permite agrandar solo una palabra dentro de una oración, y se combina con
+// el color en el mismo <span> en vez de pisarlo (verificado en una prueba
+// aislada: aplicar tamaño después de un color, o un color después de un
+// tamaño, conserva ambos en el mismo elemento).
+const FontSizeExtension = Extension.create({
+  name: "reportFontSize",
+  addOptions() {
+    return { types: ["textStyle"] };
+  },
+  addGlobalAttributes() {
+    return [{
+      types: this.options.types,
+      attributes: {
+        fontSize: {
+          default: null,
+          parseHTML: (element: HTMLElement) => element.style.fontSize || null,
+          renderHTML: (attributes: Record<string, unknown>) => {
+            const size = attributes.fontSize as string | null;
+            if (!size) return {};
+            return { style: `font-size: ${size}` };
+          },
+        },
+      },
+    }];
+  },
+});
+
+const FONT_SIZE_OPTIONS = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 40];
+
+const RICH_EXTENSIONS = [
+  StarterKit.configure({ heading: false, codeBlock: false }),
+  UnderlineExtension,
+  TextStyle,
+  Color,
+  FontSizeExtension,
+  Highlight.configure({ multicolor: true }),
+  LinkExtension.configure({ openOnClick: false }),
+  IndentExtension,
+  LineHeightExtension,
+  TextAlign.configure({ types: ["paragraph"] }),
+];
 
 // ── Edición por arrastre sobre la vista previa en vivo ──────────────────────
 // La vista previa en vivo carga el HTML real del reporte (mismo motor que el
@@ -108,17 +224,31 @@ function createHandle(doc: Document, symbol: string, cursor: string): HTMLDivEle
 
 // Arrastre libre (nudge x/y sobre la posición actual) — usado para el logo y,
 // con baseX/baseY = x/y guardados, para reposicionar un cuadro de texto.
-function makeDraggable(target: HTMLElement, baseX: number, baseY: number, onCommit: (x: number, y: number) => void, corner: "top-right" | "top-left" = "top-right") {
+// `onDragStart`/`onDragEnd` marcan el intervalo de arrastre para que el
+// refresco automático de la vista previa (debounce en el componente) no
+// reemplace el iframe (y con él, los listeners de mousemove/mouseup ya
+// atados al documento viejo) a mitad de un gesto en curso.
+// `baseX`/`baseY` se guardan en variables locales (`curX`/`curY`), no solo
+// como parámetros de la función, y se ACTUALIZAN en cada `onCommit` — si el
+// admin arrastra, suelta, y vuelve a arrastrar de nuevo SIN que la vista
+// previa llegue a recargar entre medio (recarga que sí trae un valor fresco
+// desde `config`), un segundo arrastre que siguiera partiendo del valor de
+// montaje original ignoraba por completo lo que el primer arrastre ya había
+// movido — el segundo gesto "pisaba" al primero en vez de sumarse, y lo que
+// quedaba guardado terminaba siendo el resultado de ESE cálculo equivocado
+// (a veces cerca de 0 otra vez), no la posición donde se veía en pantalla.
+function makeDraggable(target: HTMLElement, baseX: number, baseY: number, onCommit: (x: number, y: number) => void, corner: "top-right" | "top-left" = "top-right", onDragStart: () => void = () => {}, onDragEnd: () => void = () => {}) {
   const doc = target.ownerDocument;
   const handle = createHandle(doc, "✥", "grab");
   positionHandleAt(handle, target, corner);
   doc.body.appendChild(handle);
 
+  let curX = baseX, curY = baseY;
   let startX = 0, startY = 0, dragging = false;
   const onMove = (e: MouseEvent) => {
     if (!dragging) return;
-    const x = baseX + (e.clientX - startX);
-    const y = baseY + (e.clientY - startY);
+    const x = curX + (e.clientX - startX);
+    const y = curY + (e.clientY - startY);
     target.style.transform = `translate(${x}px, ${y}px)`;
   };
   const onUp = (e: MouseEvent) => {
@@ -126,12 +256,16 @@ function makeDraggable(target: HTMLElement, baseX: number, baseY: number, onComm
     dragging = false;
     doc.removeEventListener("mousemove", onMove);
     doc.removeEventListener("mouseup", onUp);
-    onCommit(Math.round(baseX + (e.clientX - startX)), Math.round(baseY + (e.clientY - startY)));
+    curX = Math.round(curX + (e.clientX - startX));
+    curY = Math.round(curY + (e.clientY - startY));
+    onDragEnd();
+    onCommit(curX, curY);
   };
   handle.addEventListener("mousedown", (e) => {
     dragging = true;
     startX = e.clientX;
     startY = e.clientY;
+    onDragStart();
     doc.addEventListener("mousemove", onMove);
     doc.addEventListener("mouseup", onUp);
     e.preventDefault();
@@ -139,18 +273,23 @@ function makeDraggable(target: HTMLElement, baseX: number, baseY: number, onComm
 }
 
 // Redimensionar arrastrando (feedback visual con `scale`, valor real confirmado al soltar).
-function makeResizable(target: HTMLElement, baseValue: number, min: number, max: number, sensitivity: number, onCommit: (value: number) => void) {
+// Mismo criterio que makeDraggable: `curValue` (no solo el parámetro
+// `baseValue`) se actualiza en cada `onCommit` para que un segundo
+// redimensionado sin recarga de por medio parta del valor real ya
+// confirmado, no del de montaje.
+function makeResizable(target: HTMLElement, baseValue: number, min: number, max: number, sensitivity: number, onCommit: (value: number) => void, onDragStart: () => void = () => {}, onDragEnd: () => void = () => {}) {
   const doc = target.ownerDocument;
   const handle = createHandle(doc, "⤡", "nwse-resize");
   positionHandleAt(handle, target, "bottom-right");
   doc.body.appendChild(handle);
 
+  let curValue = baseValue;
   let startX = 0, dragging = false;
   const clamp = (v: number) => Math.max(min, Math.min(max, v));
   const onMove = (e: MouseEvent) => {
     if (!dragging) return;
     const delta = (e.clientX - startX) * sensitivity;
-    const factor = clamp(baseValue + delta) / baseValue;
+    const factor = clamp(curValue + delta) / curValue;
     target.style.transform = `scale(${factor})`;
   };
   const onUp = (e: MouseEvent) => {
@@ -160,11 +299,14 @@ function makeResizable(target: HTMLElement, baseValue: number, min: number, max:
     doc.removeEventListener("mouseup", onUp);
     target.style.transform = "";
     const delta = (e.clientX - startX) * sensitivity;
-    onCommit(Math.round(clamp(baseValue + delta)));
+    curValue = Math.round(clamp(curValue + delta));
+    onDragEnd();
+    onCommit(curValue);
   };
   handle.addEventListener("mousedown", (e) => {
     dragging = true;
     startX = e.clientX;
+    onDragStart();
     doc.addEventListener("mousemove", onMove);
     doc.addEventListener("mouseup", onUp);
     e.preventDefault();
@@ -175,28 +317,33 @@ function makeResizable(target: HTMLElement, baseValue: number, min: number, max:
 // (que aproxima con `scale` porque el valor real recalcula tamaños de fuente),
 // el ancho es una propiedad de caja real — se aplica directo durante el
 // arrastre (el texto reenvuelve en vivo con el ancho real, sin aproximación).
-function makeWidthResizable(target: HTMLElement, baseWidth: number, min: number, max: number, onCommit: (width: number) => void) {
+// Mismo criterio que makeDraggable/makeResizable sobre `curWidth`.
+function makeWidthResizable(target: HTMLElement, baseWidth: number, min: number, max: number, onCommit: (width: number) => void, onDragStart: () => void = () => {}, onDragEnd: () => void = () => {}) {
   const doc = target.ownerDocument;
   const handle = createHandle(doc, "↔", "ew-resize");
   positionHandleAt(handle, target, "bottom-right");
   doc.body.appendChild(handle);
 
+  let curWidth = baseWidth;
   let startX = 0, dragging = false;
   const clamp = (v: number) => Math.max(min, Math.min(max, v));
   const onMove = (e: MouseEvent) => {
     if (!dragging) return;
-    target.style.width = `${clamp(baseWidth + (e.clientX - startX))}px`;
+    target.style.width = `${clamp(curWidth + (e.clientX - startX))}px`;
   };
   const onUp = (e: MouseEvent) => {
     if (!dragging) return;
     dragging = false;
     doc.removeEventListener("mousemove", onMove);
     doc.removeEventListener("mouseup", onUp);
-    onCommit(Math.round(clamp(baseWidth + (e.clientX - startX))));
+    curWidth = Math.round(clamp(curWidth + (e.clientX - startX)));
+    onDragEnd();
+    onCommit(curWidth);
   };
   handle.addEventListener("mousedown", (e) => {
     dragging = true;
     startX = e.clientX;
+    onDragStart();
     doc.addEventListener("mousemove", onMove);
     doc.addEventListener("mouseup", onUp);
     e.preventDefault();
@@ -218,6 +365,60 @@ function makeDeletable(target: HTMLElement, onDelete: () => void) {
   });
 }
 
+export interface ActiveRichField {
+  kind: "copy" | "textbox";
+  key: string;
+  editor: Editor;
+  initialHtml: string;
+}
+
+// Todo texto editable del reporte (títulos, párrafos, etiquetas de gráficas,
+// cuadros de texto libre — nunca los datos ya renderizados: puntajes,
+// comentarios de la encuesta, nombres) se edita EN LÍNEA con Tiptap montado
+// directamente sobre el elemento — igual que un lienzo de Word, sin textarea
+// ni modal intermedio. La paleta de formato vive SIEMPRE VISIBLE arriba, en
+// el documento padre (ver Toolbar en el componente) — no un tooltip flotante
+// por campo — y se conecta con el campo que tenga el foco en cada momento vía
+// `onFieldActivate`. Se verificó con una prueba aislada en Playwright que
+// `editor.chain().focus()...run()` restaura foco Y selección correctamente
+// incluso cuando el clic que lo dispara ocurre en un botón de OTRO documento
+// (el padre, fuera del iframe).
+function mountRichEditor(
+  el: HTMLElement,
+  kind: "copy" | "textbox",
+  key: string,
+  onCommit: (html: string) => void,
+  onFieldActivate: (field: ActiveRichField) => void,
+  forceToolbarUpdate: () => void
+) {
+  const initialHtml = el.innerHTML;
+  // Tiptap usa `element` como CONTENEDOR donde agrega su propio div editable
+  // (.tiptap.ProseMirror) — no reemplaza lo que ya hubiera adentro. Sin este
+  // vaciado, el texto original se quedaba como un nodo de texto suelto al
+  // lado del editor real, duplicando visualmente el contenido y — más grave —
+  // interceptando el clic (por delante del div editable en el DOM), así que
+  // nunca llegaba a enfocar el editor de verdad.
+  el.innerHTML = "";
+  el.style.outline = "none";
+  el.style.cursor = "text";
+  el.style.minHeight = "1.3em";
+  const editor = new Editor({
+    element: el,
+    extensions: RICH_EXTENSIONS,
+    content: initialHtml,
+    onFocus: () => {
+      onFieldActivate({ kind, key, editor, initialHtml });
+      forceToolbarUpdate();
+    },
+    onBlur: () => {
+      const html = editor.getHTML();
+      if (html !== initialHtml) onCommit(html);
+    },
+    onSelectionUpdate: () => forceToolbarUpdate(),
+    onTransaction: () => forceToolbarUpdate(),
+  });
+}
+
 function attachEditHandles(
   doc: Document,
   config: ReportTemplateConfig,
@@ -225,18 +426,29 @@ function attachEditHandles(
   setCompetenciasIconSize: (px: number) => void,
   setBlockFontScalePct: (block: ReportBlockId, pct: number) => void,
   updateTextBox: (id: string, patch: Partial<CustomTextBox>) => void,
-  removeTextBox: (id: string) => void
+  removeTextBox: (id: string) => void,
+  updateCopyByPath: (path: string, value: string) => void,
+  onEditStart: () => void,
+  onEditEnd: () => void,
+  onFieldActivate: (field: ActiveRichField) => void,
+  forceToolbarUpdate: () => void
 ) {
   const logoEl = doc.querySelector<HTMLElement>('[data-edit="logo"]');
-  if (logoEl) makeDraggable(logoEl, config.logo.headerOffsetX, config.logo.headerOffsetY, setLogoOffset);
+  if (logoEl) makeDraggable(logoEl, config.logo.headerOffsetX, config.logo.headerOffsetY, setLogoOffset, "top-right", onEditStart, onEditEnd);
 
   const iconEl = doc.querySelector<HTMLElement>('[data-edit="icon"]');
-  if (iconEl) makeResizable(iconEl, config.blocks.competencias.iconSize, 12, 40, 0.15, setCompetenciasIconSize);
+  if (iconEl) makeResizable(iconEl, config.blocks.competencias.iconSize, 12, 40, 0.15, setCompetenciasIconSize, onEditStart, onEditEnd);
 
+  // Un bloque puede repetir su título de sección más de una vez si el admin
+  // llegó a duplicar contenido a mano — se adjunta una sola manija por
+  // bloque (la del primer fragmento) para no duplicarlas.
+  const seenBlocks = new Set<ReportBlockId>();
   doc.querySelectorAll<HTMLElement>("[data-edit-block]").forEach((blockEl) => {
     const blockId = blockEl.getAttribute("data-edit-block") as ReportBlockId;
+    if (seenBlocks.has(blockId)) return;
+    seenBlocks.add(blockId);
     const currentPct = Math.round(config.blocks[blockId].fontScale * 100);
-    makeResizable(blockEl, currentPct, 70, 150, 0.3, (pct) => setBlockFontScalePct(blockId, pct));
+    makeResizable(blockEl, currentPct, 70, 150, 0.3, (pct) => setBlockFontScalePct(blockId, pct), onEditStart, onEditEnd);
   });
 
   doc.querySelectorAll<HTMLElement>("[data-edit-textbox]").forEach((boxEl) => {
@@ -244,19 +456,190 @@ function attachEditHandles(
     const box = config.customTextBoxes.find((b) => b.id === id);
     if (!box) return;
 
-    makeDraggable(boxEl, box.x, box.y, (x, y) => updateTextBox(id, { x, y }), "top-left");
-    makeWidthResizable(boxEl, box.width, 60, 700, (width) => updateTextBox(id, { width }));
+    makeDraggable(boxEl, box.x, box.y, (x, y) => updateTextBox(id, { x, y }), "top-left", onEditStart, onEditEnd);
+    makeWidthResizable(boxEl, box.width, 60, 700, (width) => updateTextBox(id, { width }), onEditStart, onEditEnd);
     makeDeletable(boxEl, () => removeTextBox(id));
 
-    // Editar el texto directamente en la vista previa (solo en el editor —
-    // no forma parte del HTML real que se envía/descarga).
-    boxEl.contentEditable = "true";
-    boxEl.style.outline = "none";
-    boxEl.addEventListener("blur", () => {
-      const text = boxEl.textContent ?? "";
-      if (text !== box.text) updateTextBox(id, { text });
-    });
+    mountRichEditor(boxEl, "textbox", id, (html) => updateTextBox(id, { text: html }), onFieldActivate, forceToolbarUpdate);
   });
+
+  // Todo el texto "de copy" de la plantilla (títulos, descripciones,
+  // etiquetas — no los datos ya renderizados como puntajes/nombres/gráficos)
+  // se edita en línea con la misma mecánica, sin distinción entre títulos
+  // cortos y párrafos largos — ambos usan Tiptap por igual, controlados
+  // desde la misma barra superior. `data-raw` guarda la plantilla SIN
+  // interpolar (con sus {{placeholders}} intactos, si tiene): es lo que se
+  // carga en el editor, para poder tocar el placeholder en vez del valor ya
+  // resuelto de esta preview puntual.
+  doc.querySelectorAll<HTMLElement>("[data-edit-copy]").forEach((el) => {
+    const path = el.getAttribute("data-edit-copy");
+    if (!path) return;
+    mountRichEditor(el, "copy", path, (html) => updateCopyByPath(path, html), onFieldActivate, forceToolbarUpdate);
+  });
+}
+
+// ── Barra de herramientas persistente ────────────────────────────────────
+// Vive en el documento PADRE (no dentro del iframe) y siempre está visible
+// arriba de la vista previa — no es un tooltip que aparece/desaparece por
+// campo. Actúa sobre `activeField.editor`, que es el editor de Tiptap del
+// último campo que tuvo el foco dentro del iframe (ver onFieldActivate);
+// como Tiptap restaura foco Y selección con `.chain().focus()` incluso
+// cruzando la frontera del iframe (verificado en una prueba aislada), un
+// clic acá no necesita mantener el foco en el campo para funcionar.
+function ToolBtn({ onClick, active, disabled, title, children }: { onClick: () => void; active?: boolean; disabled?: boolean; title: string; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      title={title}
+      disabled={disabled}
+      onMouseDown={(e) => { e.preventDefault(); if (!disabled) onClick(); }}
+      className={`w-7 h-7 flex items-center justify-center rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${active ? "bg-primary/10 text-primary" : "text-[#64748b] hover:bg-slate-100"}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ToolbarSep() {
+  return <div className="w-px h-5 bg-slate-200 mx-1" />;
+}
+
+function RichToolbar({ activeField }: { activeField: ActiveRichField | null }) {
+  const editor = activeField?.editor ?? null;
+  const disabled = !editor;
+  const isActive = (name: string, attrs?: Record<string, unknown>) => (editor ? editor.isActive(name, attrs) : false);
+  const [showLink, setShowLink] = useState(false);
+  const [linkUrl, setLinkUrl] = useState("");
+
+  const currentIndent = editor?.getAttributes("paragraph").indent ?? 0;
+  const currentLineHeight = (editor?.getAttributes("paragraph").lineHeight as string | null) ?? "";
+  const currentColor = (editor?.getAttributes("textStyle").color as string | undefined) ?? "#1e293b";
+  const currentHighlight = (editor?.getAttributes("highlight").color as string | undefined) ?? "#ffffff";
+  const currentFontSize = (editor?.getAttributes("textStyle").fontSize as string | null) ?? "";
+  const currentAlign = (editor?.getAttributes("paragraph").textAlign as string | null) ?? "left";
+
+  function openLink() {
+    if (!editor) return;
+    setLinkUrl((editor.getAttributes("link").href as string | undefined) ?? "");
+    setShowLink(true);
+  }
+  function applyLink() {
+    if (!editor) return;
+    if (linkUrl.trim()) editor.chain().focus().extendMarkRange("link").setLink({ href: linkUrl.trim() }).run();
+    else editor.chain().focus().unsetLink().run();
+    setShowLink(false);
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-3 py-2 flex flex-wrap items-center gap-1 relative">
+      <ToolBtn title="Negrita" disabled={disabled} active={isActive("bold")} onClick={() => editor!.chain().focus().toggleBold().run()}><BoldIcon className="w-3.5 h-3.5" /></ToolBtn>
+      <ToolBtn title="Cursiva" disabled={disabled} active={isActive("italic")} onClick={() => editor!.chain().focus().toggleItalic().run()}><ItalicIcon className="w-3.5 h-3.5" /></ToolBtn>
+      <ToolBtn title="Subrayado" disabled={disabled} active={isActive("underline")} onClick={() => editor!.chain().focus().toggleUnderline().run()}><UnderlineIcon className="w-3.5 h-3.5" /></ToolBtn>
+      <ToolBtn title="Tachado" disabled={disabled} active={isActive("strike")} onClick={() => editor!.chain().focus().toggleStrike().run()}><Strikethrough className="w-3.5 h-3.5" /></ToolBtn>
+
+      <ToolbarSep />
+
+      <select
+        title="Tamaño de letra — aplica a la selección (una palabra, una frase o todo el texto)"
+        disabled={disabled}
+        value={currentFontSize.replace("px", "")}
+        onChange={(e) => editor?.chain().focus().setMark("textStyle", { fontSize: e.target.value ? `${e.target.value}px` : null }).run()}
+        className="h-7 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg px-1.5 outline-none focus:border-primary cursor-pointer disabled:opacity-30"
+      >
+        <option value="">Tamaño</option>
+        {FONT_SIZE_OPTIONS.map((size) => <option key={size} value={size}>{size}px</option>)}
+      </select>
+
+      <ToolbarSep />
+
+      <div className="relative flex items-center">
+        <label className={`w-7 h-7 flex items-center justify-center rounded-lg cursor-pointer hover:bg-slate-100 ${disabled ? "opacity-30 pointer-events-none" : ""}`} title="Color de texto">
+          <Palette className="w-3.5 h-3.5 text-[#64748b]" />
+          <input
+            type="color" value={currentColor} disabled={disabled}
+            onChange={(e) => editor?.chain().focus().setColor(e.target.value).run()}
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+          />
+        </label>
+      </div>
+      <ToolBtn title="Quitar color de texto" disabled={disabled} onClick={() => editor!.chain().focus().unsetColor().run()}><X className="w-3 h-3" /></ToolBtn>
+
+      <div className="relative flex items-center">
+        <label className={`w-7 h-7 flex items-center justify-center rounded-lg cursor-pointer hover:bg-slate-100 ${disabled ? "opacity-30 pointer-events-none" : ""}`} title="Color de resaltado">
+          <Highlighter className="w-3.5 h-3.5 text-[#64748b]" />
+          <input
+            type="color" value={currentHighlight} disabled={disabled}
+            onChange={(e) => editor?.chain().focus().setHighlight({ color: e.target.value }).run()}
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+          />
+        </label>
+      </div>
+      <ToolBtn title="Quitar resaltado" disabled={disabled} onClick={() => editor!.chain().focus().unsetHighlight().run()}><X className="w-3 h-3" /></ToolBtn>
+
+      <ToolbarSep />
+
+      <ToolBtn title="Alinear a la izquierda" disabled={disabled} active={currentAlign === "left"} onClick={() => editor!.chain().focus().setTextAlign("left").run()}><AlignLeft className="w-3.5 h-3.5" /></ToolBtn>
+      <ToolBtn title="Centrar" disabled={disabled} active={currentAlign === "center"} onClick={() => editor!.chain().focus().setTextAlign("center").run()}><AlignCenter className="w-3.5 h-3.5" /></ToolBtn>
+      <ToolBtn title="Alinear a la derecha" disabled={disabled} active={currentAlign === "right"} onClick={() => editor!.chain().focus().setTextAlign("right").run()}><AlignRight className="w-3.5 h-3.5" /></ToolBtn>
+      <ToolBtn title="Justificar" disabled={disabled} active={currentAlign === "justify"} onClick={() => editor!.chain().focus().setTextAlign("justify").run()}><AlignJustify className="w-3.5 h-3.5" /></ToolBtn>
+
+      <ToolbarSep />
+
+      <ToolBtn title="Lista con viñetas" disabled={disabled} active={isActive("bulletList")} onClick={() => editor!.chain().focus().toggleBulletList().run()}><List className="w-3.5 h-3.5" /></ToolBtn>
+      <ToolBtn title="Lista numerada" disabled={disabled} active={isActive("orderedList")} onClick={() => editor!.chain().focus().toggleOrderedList().run()}><ListOrdered className="w-3.5 h-3.5" /></ToolBtn>
+      <ToolBtn title="Cita" disabled={disabled} active={isActive("blockquote")} onClick={() => editor!.chain().focus().toggleBlockquote().run()}><Quote className="w-3.5 h-3.5" /></ToolBtn>
+
+      <ToolbarSep />
+
+      <ToolBtn
+        title="Reducir sangría"
+        disabled={disabled || currentIndent <= 0}
+        onClick={() => editor!.chain().focus().updateAttributes("paragraph", { indent: Math.max(0, currentIndent - 1) }).run()}
+      >
+        <IndentDecrease className="w-3.5 h-3.5" />
+      </ToolBtn>
+      <ToolBtn
+        title="Aumentar sangría"
+        disabled={disabled || currentIndent >= MAX_INDENT}
+        onClick={() => editor!.chain().focus().updateAttributes("paragraph", { indent: Math.min(MAX_INDENT, currentIndent + 1) }).run()}
+      >
+        <IndentIncrease className="w-3.5 h-3.5" />
+      </ToolBtn>
+
+      <select
+        title="Interlineado"
+        disabled={disabled}
+        value={currentLineHeight}
+        onChange={(e) => editor?.chain().focus().updateAttributes("paragraph", { lineHeight: e.target.value || null }).run()}
+        className="h-7 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg px-1.5 outline-none focus:border-primary cursor-pointer disabled:opacity-30"
+      >
+        <option value="">Interlineado</option>
+        <option value="1">1.0</option>
+        <option value="1.15">1.15</option>
+        <option value="1.5">1.5</option>
+        <option value="2">2.0</option>
+      </select>
+
+      <ToolbarSep />
+
+      <ToolBtn title="Enlace" disabled={disabled} active={isActive("link")} onClick={openLink}><Link2 className="w-3.5 h-3.5" /></ToolBtn>
+      <ToolBtn title="Limpiar formato" disabled={disabled} onClick={() => editor!.chain().focus().unsetAllMarks().clearNodes().run()}><RemoveFormatting className="w-3.5 h-3.5" /></ToolBtn>
+
+      {showLink && (
+        <div className="absolute top-full left-0 mt-1 z-20 bg-white border border-slate-200 rounded-xl shadow-lg p-2 flex items-center gap-1.5">
+          <input
+            autoFocus type="text" value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)}
+            placeholder="https://..." onKeyDown={(e) => { if (e.key === "Enter") applyLink(); if (e.key === "Escape") setShowLink(false); }}
+            className="text-xs border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-primary w-56"
+          />
+          <button onClick={applyLink} className="text-xs font-bold text-primary px-2 py-1 hover:bg-primary/5 rounded-lg">Aplicar</button>
+          <button onClick={() => setShowLink(false)} className="text-xs font-bold text-[#94a3b8] px-2 py-1 hover:bg-slate-50 rounded-lg">Cancelar</button>
+        </div>
+      )}
+
+      {!editor && <span className="text-[11px] text-[#94a3b8] ml-1">Haz clic en cualquier texto de la vista previa para editarlo</span>}
+    </div>
+  );
 }
 
 export default function EvalReportTemplateEditor({ evaluation }: Props) {
@@ -274,6 +657,25 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
   const previewUrlRef = useRef<string | null>(null);
   const requestIdRef = useRef(0);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  // Alto real del documento paginado (varias hojas A4 apiladas) — el iframe
+  // se dimensiona a esto para que el contenedor de afuera pueda scrollear una
+  // sola vez y se vean los bordes/gaps entre hojas, en vez de que el iframe
+  // recorte todo a una ventana fija de 600px sin scroll visible.
+  const [liveIframeHeight, setLiveIframeHeight] = useState(1200);
+  // Ancho fijo de "una hoja" (px, ~A4) — la vista en vivo ya no pagina (ver
+  // por qué en report-template/preview/route.ts), así que no hay nada que
+  // medir: el iframe siempre se ve con este ancho, y el alto crece libre
+  // según el contenido real (liveIframeHeight).
+  const pageWidthPx = 794;
+  const [zoom, setZoom] = useState(1);
+  const hasAutoFitRef = useRef(false);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
+  // Posición de scroll del panel de vista previa, capturada justo antes de
+  // que el iframe se recargue (nueva vista previa) y restaurada una vez la
+  // nueva hoja termina de cargar — sin esto, cada edición (aunque el texto sí
+  // se guardara bien) hacía que el scroll saltara al inicio del documento en
+  // cuanto terminaba el "cargando", como si todo hubiera vuelto a como estaba.
+  const savedScrollRef = useRef(0);
 
   // "live": HTML en vivo (arrastrable). "pdf": el PDF real (paginación exacta),
   // generado bajo demanda ya que pasa por Puppeteer.
@@ -284,6 +686,31 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
 
   const [openBlock, setOpenBlock] = useState<ReportBlockId | null>(null);
   const dragIdRef = useRef<ReportBlockId | null>(null);
+  // Paneles expandibles de la franja superior (no son popovers flotantes:
+  // simplemente empujan el contenido de abajo, más simple y sin necesitar
+  // lógica de "click afuera para cerrar").
+  const [showBlocksPanel, setShowBlocksPanel] = useState(false);
+  const [showTextBoxPanel, setShowTextBoxPanel] = useState(false);
+
+  // true mientras el admin está a mitad de un arrastre/resize dentro del
+  // iframe (logo, cuadro de texto, tamaño de bloque) — el refresco automático
+  // de la vista previa espera a que esto vuelva a false antes de recargar
+  // (ver el efecto de debounce más abajo), para no reemplazar el iframe (y
+  // perder lo que todavía no se confirmó con el mouseup) a mitad de un gesto.
+  const isEditingRef = useRef(false);
+  const onEditStart = useCallback(() => { isEditingRef.current = true; }, []);
+  const onEditEnd = useCallback(() => { isEditingRef.current = false; }, []);
+
+  // Campo con foco (o el último que lo tuvo) dentro de la vista previa — la
+  // barra de herramientas persistente (RichToolbar) actúa sobre su editor.
+  // Es una ref (no un estado) porque cambia en cada focus/selección, mucho
+  // más seguido de lo que conviene disparar un re-render completo del
+  // componente; `toolbarTick` es el único estado que fuerza a la barra a
+  // releerla y refrescar sus botones "activos".
+  const activeFieldRef = useRef<ActiveRichField | null>(null);
+  const [toolbarTick, setToolbarTick] = useState(0);
+  const forceToolbarUpdate = useCallback(() => setToolbarTick((t) => t + 1), []);
+  const onFieldActivate = useCallback((field: ActiveRichField) => { activeFieldRef.current = field; }, []);
 
   // Categorías reales de esta encuesta (para el mapeo de íconos del bloque "Competencias")
   const categories = useMemo(() => {
@@ -346,6 +773,9 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
   const runPreview = useCallback(async (cfg: ReportTemplateConfig, email: string) => {
     if (!email) return;
     const myRequestId = ++requestIdRef.current;
+    // Capturar el scroll actual justo antes de pedir la nueva vista previa —
+    // se restaura en handleIframeLoad una vez la hoja nueva termina de cargar.
+    savedScrollRef.current = previewContainerRef.current?.scrollTop ?? 0;
     setPreviewLoading(true);
     setPreviewError(null);
     try {
@@ -373,11 +803,50 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
     }
   }, [evaluation.id]);
 
-  // Debounce: regenerar la vista previa ~700ms después del último cambio.
+  // Si lo ÚNICO que cambió entre un config y el siguiente es texto (copy o
+  // el contenido de un cuadro libre), la vista en vivo YA lo está mostrando
+  // correctamente — Tiptap edita el DOM real en el momento, sin pasar por el
+  // servidor. Recargar el iframe para "confirmar" un cambio que ya se ve
+  // bien no solo es innecesario: como el HTML de esta plantilla no pagina
+  // (ver por qué en report-template/preview/route.ts), recargar de más no
+  // rompe nada por sí solo, pero sí puede pisar por un instante texto que el
+  // admin sigue escribiendo en OTRO campo si la recarga anterior (de un
+  // cambio de color/margen, por ejemplo) todavía estaba en camino. Se
+  // reserva la recarga real para cambios que Tiptap no puede reflejar por su
+  // cuenta: colores, márgenes, logo, tamaño de bloque/ícono, e íconos por
+  // categoría.
+  function stripCopyAndText(cfg: ReportTemplateConfig) {
+    return {
+      ...cfg,
+      copy: null,
+      customTextBoxes: cfg.customTextBoxes.map(({ text, ...rest }) => rest),
+    };
+  }
+  function isOnlyTextChange(prev: ReportTemplateConfig, next: ReportTemplateConfig): boolean {
+    return JSON.stringify(stripCopyAndText(prev)) === JSON.stringify(stripCopyAndText(next));
+  }
+  const prevConfigForReloadRef = useRef(config);
+
+  // Debounce: regenerar la vista previa ~700ms después del último cambio
+  // que Tiptap no pueda reflejar por su cuenta (ver arriba). `isEditingRef`
+  // pospone mientras el admin está a mitad de un arrastre (logo/cuadro de
+  // texto/tamaño de bloque) — recargar destruiría el iframe (y con él los
+  // listeners de mousemove/mouseup ya atados al documento viejo) a mitad
+  // del gesto.
   useEffect(() => {
     if (loading || !evaluateeEmail) return;
-    const t = setTimeout(() => runPreview(config, evaluateeEmail), 700);
-    return () => clearTimeout(t);
+    const prev = prevConfigForReloadRef.current;
+    prevConfigForReloadRef.current = config;
+    if (isOnlyTextChange(prev, config)) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const schedule = (delay: number) => {
+      timer = setTimeout(() => {
+        if (isEditingRef.current) { schedule(400); return; }
+        runPreview(config, evaluateeEmail);
+      }, delay);
+    };
+    schedule(700);
+    return () => clearTimeout(timer);
   }, [config, evaluateeEmail, loading, runPreview]);
 
   useEffect(() => () => { if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current); }, []);
@@ -387,10 +856,16 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
     if (!evaluateeEmail) return;
     setRealPdfLoading(true);
     try {
+      // Igual que al guardar: si hay un campo con foco (o recién enfocado)
+      // con cambios que Tiptap no confirmó todavía por blur, se aplican
+      // antes de pedir el PDF — sin esto, pedir el PDF justo después de
+      // escribir (sin haber hecho clic fuera del campo primero) generaba el
+      // PDF con el texto ANTERIOR al último cambio.
+      const toRender = flushActiveField(config);
       const res = await fetch("/api/evaluaciones360/report-template/preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ surveyId: evaluation.id, evaluateeEmail, config, format: "pdf" }),
+        body: JSON.stringify({ surveyId: evaluation.id, evaluateeEmail, config: toRender, format: "pdf" }),
       });
       if (!res.ok) return;
       const blob = await res.blob();
@@ -408,14 +883,68 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
     if (mode === "pdf") loadRealPdf();
   }
 
+  const ZOOM_MIN = 0.3;
+  const ZOOM_MAX = 2;
+  function handleZoomOut() { setZoom((z) => Math.max(ZOOM_MIN, +(z - 0.1).toFixed(2))); }
+  function handleZoomIn() { setZoom((z) => Math.min(ZOOM_MAX, +(z + 0.1).toFixed(2))); }
+  function handleZoomFit() {
+    const containerWidth = previewContainerRef.current?.clientWidth ?? 0;
+    if (containerWidth > 40 && pageWidthPx > 0) {
+      setZoom(Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, (containerWidth - 32) / pageWidthPx)));
+    }
+  }
+
+  // Escribe en `config.copy` por ruta genérica (ver getByPath/setByPath) — la
+  // única puerta de entrada para editar copy, ya sea desde la vista en vivo
+  // (data-edit-copy) o, si hiciera falta en el futuro, desde un input normal.
+  // Para "competencias.categoryDescriptions::<categoría>" (única ruta con
+  // clave dinámica hoy), el valor vacío se guarda como `null` — mismo criterio
+  // que ya usaba el formulario viejo de descripción por categoría.
+  function applyCopyByPath(cfg: ReportTemplateConfig, path: string, value: string): ReportTemplateConfig {
+    if (path.includes("::")) {
+      const [prefix, dynKey] = path.split("::");
+      const segs = prefix.split(".");
+      const current = (getByPath(cfg.copy, segs) as Record<string, string | null> | undefined) ?? {};
+      const updated = { ...current, [dynKey]: value || null };
+      return { ...cfg, copy: setByPath(cfg.copy, segs, updated) as ReportTemplateConfig["copy"] };
+    }
+    return { ...cfg, copy: setByPath(cfg.copy, path.split("."), value) as ReportTemplateConfig["copy"] };
+  }
+  const updateCopyByPath = useCallback((path: string, value: string) => {
+    setConfig((prev) => applyCopyByPath(prev, path, value));
+  }, []);
+
+  // Si hay un campo con foco (o recién enfocado) con cambios que Tiptap
+  // todavía no confirmó por blur, los aplica directo sobre `config` — sin
+  // esto, guardar o recargar la vista previa justo después de escribir (sin
+  // haber hecho clic fuera del campo primero) usaba la versión vieja: el
+  // admin veía "no se guardó" pese a haber escrito algo, o la recarga que
+  // corrige el layout de pagedjs (ver el efecto de debounce) volvía a mostrar
+  // el texto ANTERIOR en vez del que se acababa de escribir. Devuelve el
+  // config ya al día para usar de inmediato (ej. como body de un fetch),
+  // sin depender de que el re-render de React con el nuevo estado ya haya ocurrido.
+  function flushActiveField(base: ReportTemplateConfig): ReportTemplateConfig {
+    const active = activeFieldRef.current;
+    if (!active) return base;
+    const html = active.editor.getHTML();
+    if (html === active.initialHtml) return base;
+    const flushed = active.kind === "copy"
+      ? applyCopyByPath(base, active.key, html)
+      : { ...base, customTextBoxes: base.customTextBoxes.map((b) => (b.id === active.key ? { ...b, text: html } : b)) };
+    activeFieldRef.current = { ...active, initialHtml: html };
+    setConfig(flushed);
+    return flushed;
+  }
+
   async function handleSave() {
     setSaving(true);
     setSavedMsg(null);
     try {
+      const toSave = flushActiveField(config);
       const res = await fetch("/api/evaluaciones360/report-template", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(config),
+        body: JSON.stringify(toSave),
       });
       setSavedMsg(res.ok ? "Guardado — aplica a todos los reportes 360° desde ahora" : "No se pudo guardar");
     } catch {
@@ -477,42 +1006,26 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
   const handleIframeLoad = useCallback(() => {
     const doc = iframeRef.current?.contentDocument;
     if (!doc) return;
-    attachEditHandles(doc, config, setLogoOffset, setCompetenciasIconSize, setBlockFontScalePct, updateTextBox, removeTextBox);
-  }, [config, setLogoOffset, setCompetenciasIconSize, setBlockFontScalePct, updateTextBox, removeTextBox]);
-
-  const setHeaderCopy = (key: keyof ReportTemplateConfig["copy"]["header"], value: string) =>
-    setConfig((prev) => ({ ...prev, copy: { ...prev.copy, header: { ...prev.copy.header, [key]: value } } }));
-  const setFooterCopy = (key: keyof ReportTemplateConfig["copy"]["footer"], value: string) =>
-    setConfig((prev) => ({ ...prev, copy: { ...prev.copy, footer: { ...prev.copy.footer, [key]: value } } }));
-  const setCompetenciasTitle = (value: string) =>
-    setConfig((prev) => ({ ...prev, copy: { ...prev.copy, competencias: { ...prev.copy.competencias, title: value } } }));
-  const setCategoryDescription = (category: string, value: string) =>
-    setConfig((prev) => ({
-      ...prev,
-      copy: { ...prev.copy, competencias: { ...prev.copy.competencias, categoryDescriptions: { ...prev.copy.competencias.categoryDescriptions, [category]: value || null } } },
-    }));
-  const setComparativosTitle = (value: string) =>
-    setConfig((prev) => ({ ...prev, copy: { ...prev.copy, comparativos: { ...prev.copy.comparativos, title: value } } }));
-  const setComparativosGroup = (
-    group: "alegra" | "team" | "auto",
-    key: keyof ReportTemplateConfig["copy"]["comparativos"]["alegra"],
-    value: string
-  ) =>
-    setConfig((prev) => ({
-      ...prev,
-      copy: { ...prev.copy, comparativos: { ...prev.copy.comparativos, [group]: { ...prev.copy.comparativos[group], [key]: value } } },
-    }));
-  const setComparativosCustom = (
-    key: "customDefaultDesc" | "customMineLabel" | "customBenchLabel",
-    value: string
-  ) =>
-    setConfig((prev) => ({ ...prev, copy: { ...prev.copy, comparativos: { ...prev.copy.comparativos, [key]: value } } }));
-  const setComportamientosCopy = (key: keyof ReportTemplateConfig["copy"]["comportamientos"], value: string) =>
-    setConfig((prev) => ({ ...prev, copy: { ...prev.copy, comportamientos: { ...prev.copy.comportamientos, [key]: value } } }));
-  const setRankingCopy = (key: keyof ReportTemplateConfig["copy"]["ranking"], value: string) =>
-    setConfig((prev) => ({ ...prev, copy: { ...prev.copy, ranking: { ...prev.copy.ranking, [key]: value } } }));
-  const setComentariosCopy = (key: keyof ReportTemplateConfig["copy"]["comentarios"], value: string) =>
-    setConfig((prev) => ({ ...prev, copy: { ...prev.copy, comentarios: { ...prev.copy.comentarios, [key]: value } } }));
+    // Sin pagedjs de por medio, el DOM ya está completo y listo apenas
+    // dispara "load" — no hace falta esperar ningún evento de repaginado.
+    attachEditHandles(doc, config, setLogoOffset, setCompetenciasIconSize, setBlockFontScalePct, updateTextBox, removeTextBox, updateCopyByPath, onEditStart, onEditEnd, onFieldActivate, forceToolbarUpdate);
+    const height = doc.documentElement.scrollHeight;
+    if (height > 0) setLiveIframeHeight(height);
+    // Solo la primera vez: ajusta el zoom al ancho del panel para que se vea
+    // la hoja completa sin scroll horizontal. Después, el usuario controla
+    // el zoom manualmente y no se lo pisamos en cada recarga.
+    if (!hasAutoFitRef.current) {
+      hasAutoFitRef.current = true;
+      const containerWidth = previewContainerRef.current?.clientWidth ?? 0;
+      if (containerWidth > 40) setZoom(Math.min(1, (containerWidth - 32) / pageWidthPx));
+    }
+    // Restaurar el scroll capturado antes de pedir esta vista previa (ver
+    // runPreview) — en un frame aparte para que el contenedor ya haya
+    // tomado el alto recién fijado arriba.
+    requestAnimationFrame(() => {
+      if (previewContainerRef.current) previewContainerRef.current.scrollTop = savedScrollRef.current;
+    });
+  }, [config, setLogoOffset, setCompetenciasIconSize, setBlockFontScalePct, updateTextBox, removeTextBox, updateCopyByPath, onEditStart, onEditEnd, onFieldActivate, forceToolbarUpdate]);
 
   function handleDragStart(id: ReportBlockId) { dragIdRef.current = id; }
   function handleDragOver(e: React.DragEvent) { e.preventDefault(); }
@@ -526,7 +1039,7 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
       const to = order.indexOf(targetId);
       if (from === -1 || to === -1) return prev;
       order.splice(from, 1);
-      order.splice(to, 0, draggedId);
+      order.splice(to > from ? to - 1 : to, 0, draggedId);
       return { ...prev, blocks: { ...prev.blocks, order } };
     });
   }
@@ -539,198 +1052,195 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
     );
   }
 
+  // Se referencia por su valor (no solo activeFieldRef) para que el render
+  // de RichToolbar reaccione a toolbarTick — activeFieldRef por sí sola no
+  // dispara re-render al cambiar.
+  void toolbarTick;
+
   return (
     <div className="space-y-4">
       <div className="flex items-start gap-2 bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3 text-xs text-blue-700">
         <Info className="w-4 h-4 shrink-0 mt-0.5" />
-        <p>Esta plantilla es <strong>global</strong>: aplica a todos los reportes 360° (de cualquier encuesta), no solo a esta. Estás previsualizando con datos reales de <strong>{evaluation.title}</strong>.</p>
+        <p>
+          Esta plantilla es <strong>global</strong>: aplica a todos los reportes 360° (de cualquier encuesta), no solo a esta.
+          Estás previsualizando con datos reales de <strong>{evaluation.title}</strong>. Todo el texto (títulos, descripciones,
+          etiquetas) se edita haciendo clic directamente sobre él en la vista en vivo — con la barra de formato de aquí abajo,
+          igual que en un documento. No se puede editar lo que ya se calcula por evaluado (gráficas, puntajes, comentarios reales).
+        </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-5">
+      {/* ── Franja superior compacta: solo ajustes que NO son texto ────────── */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+        <div className="flex flex-wrap items-start gap-x-6 gap-y-4">
 
-        {/* ── Panel de ajustes ─────────────────────────────────────────── */}
-        <div className="space-y-5">
-
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-4">
-            <p className="text-xs font-black uppercase tracking-widest text-[#94a3b8]">Colores</p>
-            {([
-              ["primary", "Primario (barras/acentos)"],
-              ["primaryDark", "Primario oscuro (wordmark)"],
-              ["text", "Texto principal"],
-              ["textSecondary", "Texto secundario"],
-              ["background", "Fondo de encabezado"],
-              ["cardBorder", "Borde de tarjetas"],
-            ] as const).map(([key, label]) => (
-              <div key={key} className="flex items-center justify-between gap-3">
-                <label className="text-xs font-semibold text-[#1e293b]">{label}</label>
-                <div className="flex items-center gap-2">
-                  <input type="color" value={config.colors[key]} onChange={(e) => setColor(key, e.target.value)} className="w-8 h-8 rounded-lg border border-slate-200 cursor-pointer" />
-                  <span className="text-[10px] font-mono text-[#94a3b8] w-16">{config.colors[key]}</span>
-                </div>
-              </div>
-            ))}
+          {/* Colores */}
+          <div className="flex flex-col gap-1.5">
+            <p className="text-[10px] font-black uppercase tracking-widest text-[#94a3b8]">Colores</p>
+            <div className="flex items-center gap-1.5">
+              {([
+                ["primary", "Primario (barras/acentos)"],
+                ["primaryDark", "Primario oscuro (wordmark)"],
+                ["text", "Texto principal"],
+                ["textSecondary", "Texto secundario"],
+                ["background", "Fondo de página"],
+                ["cardBorder", "Borde de tarjetas"],
+              ] as const).map(([key, label]) => (
+                <input
+                  key={key} type="color" title={label} value={config.colors[key]}
+                  onChange={(e) => setColor(key, e.target.value)}
+                  className="w-7 h-7 rounded-lg border border-slate-200 cursor-pointer"
+                />
+              ))}
+            </div>
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-3">
-            <p className="text-xs font-black uppercase tracking-widest text-[#94a3b8]">Textos del encabezado</p>
-            <CopyField label="Saludo" value={config.copy.header.greeting} onChange={(v) => setHeaderCopy("greeting", v)} hint="Admite {{nombre}}" />
-            <CopyField label="Subtítulo" value={config.copy.header.subtitle} onChange={(v) => setHeaderCopy("subtitle", v)} multiline />
-          </div>
+          <div className="w-px self-stretch bg-slate-100" />
 
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-4">
-            <p className="text-xs font-black uppercase tracking-widest text-[#94a3b8]">Logo y encabezado</p>
-            {([
-              ["logoDataUri", "Logo"],
-              ["headerBgDataUri", "Fondo decorativo del encabezado"],
-            ] as const).map(([key, label]) => (
-              <div key={key} className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 min-w-0">
-                  {config.logo[key]
-                    ? <img src={config.logo[key]!} alt="" className="w-10 h-10 object-contain rounded-lg border border-slate-100 bg-slate-50" />
-                    : <div className="w-10 h-10 rounded-lg border border-dashed border-slate-200 flex items-center justify-center text-slate-300"><ImageIcon className="w-4 h-4" /></div>}
-                  <span className="text-xs font-semibold text-[#1e293b] truncate">{label}</span>
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <label className="text-[10px] font-bold text-primary bg-primary/5 hover:bg-primary/10 px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors">
-                    Subir
-                    <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload(key, e.target.files?.[0])} />
-                  </label>
-                  {config.logo[key] && (
-                    <button onClick={() => setConfig((prev) => ({ ...prev, logo: { ...prev.logo, [key]: null } }))} className="p-1.5 text-[#94a3b8] hover:text-red-500 rounded-lg" title="Quitar (usar el archivo por defecto)">
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-            <div className="flex items-center justify-between gap-3 pt-2 border-t border-slate-100">
-              <label className="text-xs font-semibold text-[#1e293b]">Alineación del logo</label>
-              <div className="flex gap-1 bg-slate-100 rounded-lg p-1">
+          {/* Logo */}
+          <div className="flex flex-col gap-1.5">
+            <p className="text-[10px] font-black uppercase tracking-widest text-[#94a3b8]">Logo</p>
+            <div className="flex items-center gap-1.5">
+              {config.logo.logoDataUri
+                ? <img src={config.logo.logoDataUri} alt="" className="w-7 h-7 object-contain rounded-lg border border-slate-100 bg-slate-50" />
+                : <div className="w-7 h-7 rounded-lg border border-dashed border-slate-200 flex items-center justify-center text-slate-300"><ImageIcon className="w-3.5 h-3.5" /></div>}
+              <label className="text-[10px] font-bold text-primary bg-primary/5 hover:bg-primary/10 px-2 py-1.5 rounded-lg cursor-pointer transition-colors">
+                Subir
+                <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload("logoDataUri", e.target.files?.[0])} />
+              </label>
+              {config.logo.logoDataUri && (
+                <button onClick={() => setConfig((prev) => ({ ...prev, logo: { ...prev.logo, logoDataUri: null } }))} className="p-1.5 text-[#94a3b8] hover:text-red-500 rounded-lg" title="Quitar logo">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+              <div className="flex gap-0.5 bg-slate-100 rounded-lg p-0.5 ml-1">
                 {([["left", AlignLeft], ["center", AlignCenter], ["right", AlignRight]] as const).map(([align, Icon]) => (
                   <button
                     key={align}
                     onClick={() => setLogoAlign(align)}
-                    className={`p-1.5 rounded-md transition-colors ${config.logo.align === align ? "bg-white shadow-sm text-primary" : "text-[#94a3b8] hover:text-[#64748b]"}`}
+                    title={`Alinear ${align}`}
+                    className={`p-1 rounded-md transition-colors ${config.logo.align === align ? "bg-white shadow-sm text-primary" : "text-[#94a3b8] hover:text-[#64748b]"}`}
                   >
-                    <Icon className="w-3.5 h-3.5" />
+                    <Icon className="w-3 h-3" />
                   </button>
                 ))}
               </div>
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <label className="text-xs font-semibold text-[#1e293b]">Tamaño del logo</label>
               <input
-                type="number" min={8} max={48}
-                value={config.logo.size}
+                type="number" min={8} max={48} value={config.logo.size}
                 onChange={(e) => setLogoSize(parseInt(e.target.value) || 16)}
-                className="w-20 text-center text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 outline-none focus:border-primary"
+                title="Tamaño del logo (px)"
+                className="w-12 text-center text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg px-1 py-1.5 outline-none focus:border-primary"
               />
-            </div>
-            <div className="flex items-center justify-between gap-3 pt-2 border-t border-slate-100">
-              <label className="text-xs font-semibold text-[#1e293b]">Posición del logo (arrástralo en la vista previa)</label>
-              <div className="flex items-center gap-1">
-                <input
-                  type="number" value={config.logo.headerOffsetX}
-                  onChange={(e) => setLogoOffset(parseInt(e.target.value) || 0, config.logo.headerOffsetY)}
-                  className="w-14 text-center text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1 outline-none focus:border-primary"
-                  title="Desplazamiento X (px)"
-                />
-                <input
-                  type="number" value={config.logo.headerOffsetY}
-                  onChange={(e) => setLogoOffset(config.logo.headerOffsetX, parseInt(e.target.value) || 0)}
-                  className="w-14 text-center text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1 outline-none focus:border-primary"
-                  title="Desplazamiento Y (px)"
-                />
-                {(config.logo.headerOffsetX !== 0 || config.logo.headerOffsetY !== 0) && (
-                  <button onClick={() => setLogoOffset(0, 0)} className="text-[10px] font-bold text-primary hover:underline px-1" title="Restablecer posición">
-                    reset
-                  </button>
-                )}
-              </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-4">
-            <p className="text-xs font-black uppercase tracking-widest text-[#94a3b8]">Márgenes y tamaños</p>
-            <div className="grid grid-cols-2 gap-3">
-              {([
-                ["pageMarginX", "Margen horizontal"],
-                ["pageMarginY", "Margen vertical"],
-                ["cardPadding", "Padding de tarjetas"],
-                ["cardRadius", "Radio de tarjetas"],
-              ] as const).map(([key, label]) => (
-                <div key={key}>
-                  <label className="block text-[10px] font-bold text-[#64748b] mb-1">{label} (px)</label>
-                  <input
-                    type="number" min={0} max={80}
-                    value={config.layout[key]}
-                    onChange={(e) => setLayout(key, parseInt(e.target.value) || 0)}
-                    className="w-full text-center text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 outline-none focus:border-primary"
-                  />
-                </div>
-              ))}
+          <div className="w-px self-stretch bg-slate-100" />
+
+          {/* Fondo decorativo del encabezado */}
+          <div className="flex flex-col gap-1.5">
+            <p className="text-[10px] font-black uppercase tracking-widest text-[#94a3b8]">Encabezado</p>
+            <div className="flex items-center gap-1.5">
+              {config.logo.headerBgDataUri
+                ? <img src={config.logo.headerBgDataUri} alt="" className="w-7 h-7 object-contain rounded-lg border border-slate-100 bg-slate-50" />
+                : <div className="w-7 h-7 rounded-lg border border-dashed border-slate-200 flex items-center justify-center text-slate-300"><ImageIcon className="w-3.5 h-3.5" /></div>}
+              <label className="text-[10px] font-bold text-primary bg-primary/5 hover:bg-primary/10 px-2 py-1.5 rounded-lg cursor-pointer transition-colors">
+                Subir fondo
+                <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload("headerBgDataUri", e.target.files?.[0])} />
+              </label>
+              {config.logo.headerBgDataUri && (
+                <button onClick={() => setConfig((prev) => ({ ...prev, logo: { ...prev.logo, headerBgDataUri: null } }))} className="p-1.5 text-[#94a3b8] hover:text-red-500 rounded-lg" title="Quitar (usar el archivo por defecto)">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+              <input
+                type="number" min={80} max={400} step={10} value={config.logo.headerBgHeight}
+                onChange={(e) => setConfig((prev) => ({ ...prev, logo: { ...prev.logo, headerBgHeight: parseInt(e.target.value) || 190 } }))}
+                title="Alto visible del fondo (px) — recorta la franja plana antes de que se funda con el color de página"
+                className="w-14 text-center text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg px-1 py-1.5 outline-none focus:border-primary"
+              />
             </div>
-            <div>
-              <label className="block text-[10px] font-bold text-[#64748b] mb-1">Densidad (tamaño de gráficos)</label>
+          </div>
+
+          <div className="w-px self-stretch bg-slate-100" />
+
+          {/* Márgenes y densidad */}
+          <div className="flex flex-col gap-1.5">
+            <p className="text-[10px] font-black uppercase tracking-widest text-[#94a3b8]">Márgenes y densidad</p>
+            <div className="flex items-center gap-1.5">
+              {([
+                ["pageMarginX", "Margen horizontal (px)"],
+                ["pageMarginY", "Margen vertical (px)"],
+                ["cardPadding", "Padding de tarjetas (px)"],
+                ["cardRadius", "Radio de tarjetas (px)"],
+              ] as const).map(([key, label]) => (
+                <input
+                  key={key} type="number" min={0} max={80} value={config.layout[key]} title={label}
+                  onChange={(e) => setLayout(key, parseInt(e.target.value) || 0)}
+                  className="w-12 text-center text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg px-1 py-1.5 outline-none focus:border-primary"
+                />
+              ))}
               <select
                 value={config.layout.density}
                 onChange={(e) => setLayout("density", e.target.value as ReportTemplateDensity)}
-                className="w-full text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 outline-none focus:border-primary cursor-pointer"
+                className="text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 outline-none focus:border-primary cursor-pointer"
               >
                 {DENSITY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-3">
-            <p className="text-xs font-black uppercase tracking-widest text-[#94a3b8]">Textos del pie de página</p>
-            <CopyField label="Línea 1" value={config.copy.footer.line1} onChange={(v) => setFooterCopy("line1", v)} />
-            <CopyField label="Línea 2" value={config.copy.footer.line2} onChange={(v) => setFooterCopy("line2", v)} />
+          <div className="w-px self-stretch bg-slate-100" />
+
+          {/* Bloques y orden (panel expandible abajo) */}
+          <div className="flex flex-col gap-1.5">
+            <p className="text-[10px] font-black uppercase tracking-widest text-[#94a3b8]">Bloques</p>
+            <button
+              onClick={() => setShowBlocksPanel((v) => !v)}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors ${showBlocksPanel ? "bg-primary/10 text-primary" : "bg-slate-50 text-[#1e293b] hover:bg-slate-100"}`}
+            >
+              <Settings2 className="w-3.5 h-3.5" /> Orden y tamaños
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showBlocksPanel ? "rotate-180" : ""}`} />
+            </button>
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-black uppercase tracking-widest text-[#94a3b8]">Texto libre</p>
-              <button onClick={addTextBox} className="flex items-center gap-1 text-[10px] font-bold text-primary hover:underline">
-                <Plus className="w-3 h-3" /> Agregar texto
+          <div className="w-px self-stretch bg-slate-100" />
+
+          {/* Texto libre (panel expandible abajo) */}
+          <div className="flex flex-col gap-1.5">
+            <p className="text-[10px] font-black uppercase tracking-widest text-[#94a3b8]">Texto libre</p>
+            <div className="flex items-center gap-1.5">
+              <button onClick={addTextBox} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-50 text-[#1e293b] hover:bg-slate-100 transition-colors">
+                <Plus className="w-3.5 h-3.5" /> Agregar
               </button>
+              {config.customTextBoxes.length > 0 && (
+                <button
+                  onClick={() => setShowTextBoxPanel((v) => !v)}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors ${showTextBoxPanel ? "bg-primary/10 text-primary" : "bg-slate-50 text-[#1e293b] hover:bg-slate-100"}`}
+                >
+                  <Type className="w-3.5 h-3.5" /> {config.customTextBoxes.length}
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showTextBoxPanel ? "rotate-180" : ""}`} />
+                </button>
+              )}
             </div>
-            <p className="text-[10px] text-[#94a3b8]">
-              Cuadros de texto adicionales que puedes mover/redimensionar/editar directamente en la vista previa en vivo. Mejor cerca del encabezado — más abajo el contenido varía de altura según el evaluado y podría no alinearse siempre igual.
-            </p>
-            {config.customTextBoxes.length === 0 ? (
-              <p className="text-[10px] text-[#94a3b8] italic">Sin cuadros de texto todavía.</p>
-            ) : (
-              config.customTextBoxes.map((box) => (
-                <div key={box.id} className="space-y-1.5 bg-slate-50 rounded-lg p-2">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color" value={box.color}
-                      onChange={(e) => updateTextBox(box.id, { color: e.target.value })}
-                      className="w-8 h-8 rounded-lg border border-slate-200 cursor-pointer shrink-0"
-                    />
-                    <input
-                      type="number" min={8} max={40} value={box.fontSize}
-                      onChange={(e) => updateTextBox(box.id, { fontSize: parseInt(e.target.value) || 12 })}
-                      className="w-16 text-center text-xs font-bold bg-white border border-slate-200 rounded-lg px-1.5 py-1 outline-none focus:border-primary"
-                      title="Tamaño de letra (px)"
-                    />
-                    <button onClick={() => removeTextBox(box.id)} className="ml-auto p-1.5 text-[#94a3b8] hover:text-red-500 rounded-lg" title="Borrar">
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  <textarea
-                    value={box.text} onChange={(e) => updateTextBox(box.id, { text: e.target.value })} rows={2}
-                    className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 outline-none focus:border-primary resize-none"
-                  />
-                </div>
-              ))
-            )}
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-2">
-            <p className="text-xs font-black uppercase tracking-widest text-[#94a3b8] mb-1">Bloques y orden</p>
-            <p className="text-[10px] text-[#94a3b8] mb-2">Arrastra para reordenar. Haz clic para ajustar el tamaño de letra de cada bloque.</p>
+          {/* Guardar */}
+          <div className="ml-auto flex items-center gap-3 self-center">
+            {savedMsg && <span className="text-xs font-semibold text-[#64748b]">{savedMsg}</span>}
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-[#1e293b] text-white rounded-xl text-xs font-bold hover:bg-primary transition-all disabled:opacity-40"
+            >
+              {saving ? <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+              Guardar plantilla
+            </button>
+          </div>
+        </div>
+
+        {/* ── Panel: Bloques y orden (arrastrar, tamaño de letra, ícono por categoría) ── */}
+        {showBlocksPanel && (
+          <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
+            <p className="text-[10px] text-[#94a3b8] mb-2">Arrastra para reordenar. Haz clic para ajustar el tamaño de letra de cada bloque. Los títulos/descripciones de cada bloque se editan directamente en la vista en vivo.</p>
             {config.blocks.order.map((blockId) => (
               <div
                 key={blockId}
@@ -773,36 +1283,25 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
                             className="w-16 text-center text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1 outline-none focus:border-primary"
                           />
                         </div>
-                        <CopyField label="Título de la sección" value={config.copy.competencias.title} onChange={setCompetenciasTitle} />
                         {categories.length > 0 && (
                           <div className="space-y-2.5 pt-2 border-t border-slate-100">
-                            <p className="text-[10px] font-bold uppercase text-[#94a3b8]">Ícono y descripción por categoría</p>
+                            <p className="text-[10px] font-bold uppercase text-[#94a3b8]">Ícono por categoría (la descripción se edita en la vista en vivo)</p>
                             {categories.map((cat) => {
                               const currentIcon = cat in config.blocks.competencias.categoryIcons
                                 ? (config.blocks.competencias.categoryIcons[cat] ?? "none")
                                 : "auto";
-                              const currentDesc = config.copy.competencias.categoryDescriptions[cat] ?? "";
                               return (
-                                <div key={cat} className="space-y-1 bg-slate-50 rounded-lg p-2">
-                                  <div className="flex items-center justify-between gap-2">
-                                    <span className="text-xs font-semibold text-[#1e293b] truncate">{cat}</span>
-                                    <select
-                                      value={currentIcon}
-                                      onChange={(e) => setCategoryIcon(cat, e.target.value)}
-                                      className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white outline-none focus:border-primary cursor-pointer shrink-0"
-                                    >
-                                      <option value="auto">Automático</option>
-                                      <option value="none">Ninguno</option>
-                                      {CATEGORY_ICON_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                                    </select>
-                                  </div>
-                                  <textarea
-                                    value={currentDesc}
-                                    onChange={(e) => setCategoryDescription(cat, e.target.value)}
-                                    placeholder="Descripción (opcional)"
-                                    rows={2}
-                                    className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2 py-1.5 outline-none focus:border-primary resize-none"
-                                  />
+                                <div key={cat} className="flex items-center justify-between gap-2 bg-slate-50 rounded-lg p-2">
+                                  <span className="text-xs font-semibold text-[#1e293b] truncate">{cat}</span>
+                                  <select
+                                    value={currentIcon}
+                                    onChange={(e) => setCategoryIcon(cat, e.target.value)}
+                                    className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white outline-none focus:border-primary cursor-pointer shrink-0"
+                                  >
+                                    <option value="auto">Automático</option>
+                                    <option value="none">Ninguno</option>
+                                    {CATEGORY_ICON_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                  </select>
                                 </div>
                               );
                             })}
@@ -810,135 +1309,131 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
                         )}
                       </>
                     )}
-
-                    {blockId === "comparativos" && (
-                      <>
-                        <CopyField label="Título de la sección" value={config.copy.comparativos.title} onChange={setComparativosTitle} />
-                        {([["alegra", "Alegra"], ["team", "Technical Team"], ["auto", "Autoevaluación"]] as const).map(([group, label]) => (
-                          <div key={group} className="space-y-1.5 pt-2 border-t border-slate-100">
-                            <p className="text-[10px] font-bold uppercase text-[#94a3b8]">Tarjeta: {label}</p>
-                            <CopyField label="Título" value={config.copy.comparativos[group].title} onChange={(v) => setComparativosGroup(group, "title", v)} />
-                            <CopyField label="Descripción" value={config.copy.comparativos[group].desc} onChange={(v) => setComparativosGroup(group, "desc", v)} multiline hint={group === "team" ? "Admite {{equipo}}" : undefined} />
-                            <div className="grid grid-cols-2 gap-2">
-                              <CopyField label={'Etiqueta "tú"'} value={config.copy.comparativos[group].mineLabel} onChange={(v) => setComparativosGroup(group, "mineLabel", v)} />
-                              <CopyField label="Etiqueta benchmark" value={config.copy.comparativos[group].benchLabel} onChange={(v) => setComparativosGroup(group, "benchLabel", v)} />
-                            </div>
-                          </div>
-                        ))}
-                        <div className="space-y-1.5 pt-2 border-t border-slate-100">
-                          <p className="text-[10px] font-bold uppercase text-[#94a3b8]">Secciones personalizadas (valores por defecto)</p>
-                          <CopyField label="Descripción por defecto" value={config.copy.comparativos.customDefaultDesc} onChange={(v) => setComparativosCustom("customDefaultDesc", v)} multiline />
-                          <div className="grid grid-cols-2 gap-2">
-                            <CopyField label={'Etiqueta "tú"'} value={config.copy.comparativos.customMineLabel} onChange={(v) => setComparativosCustom("customMineLabel", v)} />
-                            <CopyField label="Etiqueta benchmark" value={config.copy.comparativos.customBenchLabel} onChange={(v) => setComparativosCustom("customBenchLabel", v)} />
-                          </div>
-                        </div>
-                      </>
-                    )}
-
-                    {blockId === "comportamientos" && (
-                      <>
-                        <CopyField label="Título de la sección" value={config.copy.comportamientos.title} onChange={(v) => setComportamientosCopy("title", v)} />
-                        <CopyField label="Descripción" value={config.copy.comportamientos.description} onChange={(v) => setComportamientosCopy("description", v)} multiline hint="Admite {{total}}" />
-                        <div className="grid grid-cols-2 gap-2">
-                          <CopyField label="Etiqueta Fortalezas" value={config.copy.comportamientos.fortalezasLabel} onChange={(v) => setComportamientosCopy("fortalezasLabel", v)} />
-                          <CopyField label="Etiqueta Puntos de mejora" value={config.copy.comportamientos.mejorasLabel} onChange={(v) => setComportamientosCopy("mejorasLabel", v)} />
-                        </div>
-                      </>
-                    )}
-
-                    {blockId === "ranking" && (
-                      <>
-                        <CopyField label="Título de la sección" value={config.copy.ranking.title} onChange={(v) => setRankingCopy("title", v)} />
-                        <CopyField label="Descripción" value={config.copy.ranking.description} onChange={(v) => setRankingCopy("description", v)} multiline />
-                        <div className="grid grid-cols-2 gap-2">
-                          <CopyField label={'Etiqueta "tú"'} value={config.copy.ranking.mineLabel} onChange={(v) => setRankingCopy("mineLabel", v)} />
-                          <CopyField label="Etiqueta benchmark" value={config.copy.ranking.benchLabel} onChange={(v) => setRankingCopy("benchLabel", v)} />
-                        </div>
-                      </>
-                    )}
-
-                    {blockId === "comentarios" && (
-                      <>
-                        <CopyField label="Título de cada tarjeta" value={config.copy.comentarios.cardTitle} onChange={(v) => setComentariosCopy("cardTitle", v)} />
-                        <CopyField label="Texto introductorio" value={config.copy.comentarios.questionIntro} onChange={(v) => setComentariosCopy("questionIntro", v)} multiline hint="Admite {{pregunta}} (se resalta en negrita)" />
-                      </>
-                    )}
                   </div>
                 )}
               </div>
             ))}
           </div>
+        )}
 
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="flex items-center gap-1.5 px-4 py-2.5 bg-[#1e293b] text-white rounded-xl text-xs font-bold hover:bg-primary transition-all disabled:opacity-40"
-            >
-              {saving ? <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-              Guardar plantilla
-            </button>
-            {savedMsg && <span className="text-xs font-semibold text-[#64748b]">{savedMsg}</span>}
+        {/* ── Panel: Texto libre (color/tamaño/borrar — el texto se edita en vivo) ── */}
+        {showTextBoxPanel && config.customTextBoxes.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
+            <p className="text-[10px] text-[#94a3b8] mb-2">El contenido de cada cuadro se edita haciendo clic sobre él en la vista en vivo. Aquí solo su color, tamaño y posición inicial.</p>
+            {config.customTextBoxes.map((box) => (
+              <div key={box.id} className="flex items-center gap-2 bg-slate-50 rounded-lg p-2">
+                <input
+                  type="color" value={box.color}
+                  onChange={(e) => updateTextBox(box.id, { color: e.target.value })}
+                  className="w-7 h-7 rounded-lg border border-slate-200 cursor-pointer shrink-0"
+                />
+                <input
+                  type="number" min={8} max={40} value={box.fontSize}
+                  onChange={(e) => updateTextBox(box.id, { fontSize: parseInt(e.target.value) || 12 })}
+                  className="w-14 text-center text-xs font-bold bg-white border border-slate-200 rounded-lg px-1.5 py-1 outline-none focus:border-primary"
+                  title="Tamaño de letra (px)"
+                />
+                <span className="text-xs text-[#64748b] truncate flex-1 min-w-0">{box.text}</span>
+                <button onClick={() => removeTextBox(box.id)} className="p-1.5 text-[#94a3b8] hover:text-red-500 rounded-lg shrink-0" title="Borrar">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
           </div>
-        </div>
+        )}
+      </div>
 
-        {/* ── Vista previa en vivo ─────────────────────────────────────── */}
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col min-h-[600px]">
-          <div className="bg-slate-50 border-b border-slate-200 px-4 py-2.5 flex items-center gap-3">
-            <span className="text-xs font-bold text-[#1e293b]">Vista previa —</span>
-            <select
-              value={evaluateeEmail}
-              onChange={(e) => setEvaluateeEmail(e.target.value)}
-              className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white text-[#1e293b] outline-none focus:border-primary cursor-pointer flex-1 min-w-0"
-            >
-              {evaluatees.map((p) => (
-                <option key={p.evaluateeEmail} value={p.evaluateeEmail}>{p.evaluateeName || p.evaluateeEmail}</option>
-              ))}
-            </select>
-            {(previewLoading || realPdfLoading) && <div className="w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full animate-spin shrink-0" />}
-            <div className="flex gap-1 bg-slate-100 rounded-lg p-1 shrink-0">
-              <button
-                onClick={() => handleViewModeChange("live")}
-                className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold transition-colors ${viewMode === "live" ? "bg-white shadow-sm text-primary" : "text-[#94a3b8] hover:text-[#64748b]"}`}
-              >
-                <Eye className="w-3 h-3" /> Vista en vivo
+      {/* ── Barra de formato de texto — persistente, siempre visible arriba de la vista previa ── */}
+      <RichToolbar activeField={activeFieldRef.current} />
+
+      {/* ── Vista previa en vivo — todo el ancho ─────────────────────────── */}
+      {/* Alto fijo y generoso (no solo un mínimo): una hoja A4 sola ya mide
+          ~1123px, así que con un alto chico no llegabas a ver ni el borde
+          de la primera hoja. El scroll real vive en el div de abajo. */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col h-[85vh]">
+        <div className="bg-slate-50 border-b border-slate-200 px-4 py-2.5 flex items-center gap-3">
+          <span className="text-xs font-bold text-[#1e293b]">Vista previa —</span>
+          <select
+            value={evaluateeEmail}
+            onChange={(e) => setEvaluateeEmail(e.target.value)}
+            className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white text-[#1e293b] outline-none focus:border-primary cursor-pointer flex-1 min-w-0"
+          >
+            {evaluatees.map((p) => (
+              <option key={p.evaluateeEmail} value={p.evaluateeEmail}>{p.evaluateeName || p.evaluateeEmail}</option>
+            ))}
+          </select>
+          {(previewLoading || realPdfLoading) && <div className="w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full animate-spin shrink-0" />}
+          {viewMode === "live" && (
+            <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1 shrink-0">
+              <button onClick={handleZoomOut} disabled={zoom <= ZOOM_MIN} className="p-1 rounded-md text-[#64748b] hover:text-primary disabled:opacity-30" title="Alejar">
+                <ZoomOut className="w-3.5 h-3.5" />
               </button>
-              <button
-                onClick={() => handleViewModeChange("pdf")}
-                className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold transition-colors ${viewMode === "pdf" ? "bg-white shadow-sm text-primary" : "text-[#94a3b8] hover:text-[#64748b]"}`}
-              >
-                <FileText className="w-3 h-3" /> Ver PDF real
+              <span className="text-[10px] font-bold text-[#1e293b] w-9 text-center tabular-nums">{Math.round(zoom * 100)}%</span>
+              <button onClick={handleZoomIn} disabled={zoom >= ZOOM_MAX} className="p-1 rounded-md text-[#64748b] hover:text-primary disabled:opacity-30" title="Acercar">
+                <ZoomIn className="w-3.5 h-3.5" />
+              </button>
+              <button onClick={handleZoomFit} className="p-1 rounded-md text-[#64748b] hover:text-primary" title="Ajustar la hoja al ancho del panel">
+                <Maximize2 className="w-3.5 h-3.5" />
               </button>
             </div>
-          </div>
-          {viewMode === "live" && (
-            <p className="text-[10px] text-[#94a3b8] px-4 py-1.5 bg-amber-50 border-b border-amber-100">
-              Arrastra el logo y las esquinas de los bloques para ajustar posición/tamaño. Esta vista no pagina como el PDF final — usa &ldquo;Ver PDF real&rdquo; para revisar saltos de página.
-            </p>
           )}
-          <div className="flex-1 relative">
-            {viewMode === "pdf" ? (
-              realPdfUrl ? (
-                <iframe key={realPdfUrl} src={realPdfUrl} title="PDF real del reporte" className="w-full h-full border-none absolute inset-0" style={{ minHeight: "600px" }} />
-              ) : (
-                <div className="flex items-center justify-center h-full p-8 text-center text-sm text-[#94a3b8]">Generando PDF…</div>
-              )
-            ) : previewError ? (
-              <div className="flex items-center justify-center h-full p-8 text-center">
-                <p className="text-sm text-red-500 font-semibold">{previewError}</p>
-              </div>
-            ) : previewUrl ? (
+          <div className="flex gap-1 bg-slate-100 rounded-lg p-1 shrink-0">
+            <button
+              onClick={() => handleViewModeChange("live")}
+              className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold transition-colors ${viewMode === "live" ? "bg-white shadow-sm text-primary" : "text-[#94a3b8] hover:text-[#64748b]"}`}
+            >
+              <Eye className="w-3 h-3" /> Vista en vivo
+            </button>
+            <button
+              onClick={() => handleViewModeChange("pdf")}
+              className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold transition-colors ${viewMode === "pdf" ? "bg-white shadow-sm text-primary" : "text-[#94a3b8] hover:text-[#64748b]"}`}
+            >
+              <FileText className="w-3 h-3" /> Ver PDF real
+            </button>
+          </div>
+        </div>
+        {viewMode === "live" && (
+          <p className="text-[10px] text-[#94a3b8] px-4 py-1.5 bg-amber-50 border-b border-amber-100">
+            Haz clic sobre cualquier texto para editarlo — la barra de arriba controla el formato del campo activo. Arrastra el logo y
+            las esquinas de los bloques para ajustar posición/tamaño. Esta vista muestra el documento completo, seguido — usa
+            &ldquo;Ver PDF real&rdquo; para confirmar exactamente dónde caen los cortes de página.
+          </p>
+        )}
+        {/* overflow-y-auto vive aquí, no en el iframe: en "live" el iframe
+            se dimensiona a la altura real de sus hojas paginadas (ver
+            liveIframeHeight) y este div hace un solo scroll continuo sobre
+            todas ellas — así se ven los bordes/gaps entre hojas en vez de
+            recortar todo dentro de una ventana fija. En "pdf" el iframe
+            sigue absoluto/h-full porque el visor nativo de PDF ya trae su
+            propio scroll interno. */}
+        <div ref={previewContainerRef} className="flex-1 relative overflow-y-auto bg-slate-100">
+          {viewMode === "pdf" ? (
+            realPdfUrl ? (
+              <iframe key={realPdfUrl} src={realPdfUrl} title="PDF real del reporte" className="w-full h-full border-none absolute inset-0" style={{ minHeight: "600px" }} />
+            ) : (
+              <div className="flex items-center justify-center h-full p-8 text-center text-sm text-[#94a3b8]">Generando PDF…</div>
+            )
+          ) : previewError ? (
+            <div className="flex items-center justify-center h-full p-8 text-center">
+              <p className="text-sm text-red-500 font-semibold">{previewError}</p>
+            </div>
+          ) : previewUrl ? (
+            // El iframe mantiene su tamaño real (sin escalar) para que pagedjs
+            // mida/pagine igual siempre; el zoom se aplica con transform:scale
+            // sobre él, y este div wrapper se dimensiona ya escalado para que
+            // el scroll del contenedor refleje el tamaño visual, no el real.
+            <div style={{ width: pageWidthPx * zoom, height: liveIframeHeight * zoom, margin: "0 auto" }}>
               <iframe
                 key={previewUrl} ref={iframeRef} src={previewUrl} onLoad={handleIframeLoad}
-                title="Vista previa del reporte" className="w-full h-full border-none absolute inset-0" style={{ minHeight: "600px" }}
+                title="Vista previa del reporte" className="border-none block origin-top-left"
+                style={{ width: pageWidthPx, height: liveIframeHeight, transform: `scale(${zoom})` }}
               />
-            ) : (
-              <div className="flex items-center justify-center h-full p-8 text-center text-sm text-[#94a3b8]">
-                {evaluatees.length === 0 ? "Esta encuesta todavía no tiene evaluaciones enviadas." : "Generando vista previa…"}
-              </div>
-            )}
-          </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center h-full p-8 text-center text-sm text-[#94a3b8]">
+              {evaluatees.length === 0 ? "Esta encuesta todavía no tiene evaluaciones enviadas." : "Generando vista previa…"}
+            </div>
+          )}
         </div>
       </div>
     </div>

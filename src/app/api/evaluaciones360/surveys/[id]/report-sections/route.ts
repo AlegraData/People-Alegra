@@ -3,7 +3,9 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { createClient } from "@/utils/supabase/server";
 import { supabaseAdmin } from "@/utils/supabase/admin";
-import type { CustomReportSection } from "@/types/evaluaciones360";
+import type { CustomReportSection, CommentGroup, BehaviorGroup, EvalType } from "@/types/evaluaciones360";
+
+const PEER_EVAL_TYPES: EvalType[] = ["ascendente", "descendente", "paralela"];
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -25,6 +27,32 @@ function isValidSections(value: unknown): value is CustomReportSection[] {
   );
 }
 
+function isValidCommentGroups(value: unknown): value is CommentGroup[] {
+  if (!Array.isArray(value)) return false;
+  return value.every((g) =>
+    g && typeof g === "object" &&
+    typeof (g as CommentGroup).id === "string" &&
+    typeof (g as CommentGroup).title === "string" &&
+    Array.isArray((g as CommentGroup).entries) &&
+    (g as CommentGroup).entries.every((e) =>
+      typeof e.questionId === "string" && PEER_EVAL_TYPES.includes(e.type)
+    )
+  );
+}
+
+function isValidBehaviorGroups(value: unknown): value is BehaviorGroup[] {
+  if (!Array.isArray(value)) return false;
+  return value.every((g) =>
+    g && typeof g === "object" &&
+    typeof (g as BehaviorGroup).id === "string" &&
+    typeof (g as BehaviorGroup).title === "string" &&
+    Array.isArray((g as BehaviorGroup).entries) &&
+    (g as BehaviorGroup).entries.every((e) =>
+      typeof e.questionId === "string" && PEER_EVAL_TYPES.includes(e.type)
+    )
+  );
+}
+
 // Guarda el arreglo completo de secciones personalizadas de análisis (ej.
 // "Alineación Cultural") de una encuesta, gestionado desde Reportes → Configuración.
 export async function PUT(request: Request, { params }: Ctx) {
@@ -39,9 +67,15 @@ export async function PUT(request: Request, { params }: Ctx) {
       return NextResponse.json({ error: "Sin permiso" }, { status: 403 });
 
     const body = await request.json();
-    const { reportSections } = body;
+    const { reportSections, behaviorGroups, commentGroups } = body;
     if (!isValidSections(reportSections)) {
       return NextResponse.json({ error: "Formato de secciones inválido" }, { status: 400 });
+    }
+    if (behaviorGroups !== undefined && !isValidBehaviorGroups(behaviorGroups)) {
+      return NextResponse.json({ error: "Formato de grupos de comportamiento inválido" }, { status: 400 });
+    }
+    if (commentGroups !== undefined && !isValidCommentGroups(commentGroups)) {
+      return NextResponse.json({ error: "Formato de grupos de comentarios inválido" }, { status: 400 });
     }
 
     const evaluation = await prisma.evaluation360.findUnique({ where: { id } });
@@ -49,10 +83,18 @@ export async function PUT(request: Request, { params }: Ctx) {
 
     const updated = await prisma.evaluation360.update({
       where: { id },
-      data: { reportSections: reportSections as object },
+      data: {
+        reportSections: reportSections as object,
+        ...(behaviorGroups !== undefined && { behaviorGroups: behaviorGroups as object }),
+        ...(commentGroups !== undefined && { commentGroups: commentGroups as object }),
+      },
     });
 
-    return NextResponse.json({ reportSections: updated.reportSections });
+    return NextResponse.json({
+      reportSections: updated.reportSections,
+      behaviorGroups: updated.behaviorGroups,
+      commentGroups: updated.commentGroups,
+    });
   } catch (error) {
     console.error("[PUT surveys/:id/report-sections]", error);
     return NextResponse.json({ error: "Error interno" }, { status: 500 });

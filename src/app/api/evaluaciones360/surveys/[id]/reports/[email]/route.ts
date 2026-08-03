@@ -53,13 +53,18 @@ export async function GET(_req: Request, { params }: Ctx) {
       teamByEmail,
       icons: resolveReportIcons(fileIcons, templateConfig),
       templateConfig,
+      behaviorGroupsRaw: evaluation.behaviorGroups,
+      commentGroupsRaw: evaluation.commentGroups,
     });
     if (!reportData) {
       return NextResponse.json({ error: "Esta persona no tiene evaluaciones recibidas todavía" }, { status: 404 });
     }
 
     const html = buildReportHtml(reportData);
-    const pdf = await generatePdfFromHtml(html);
+    const pdf = await generatePdfFromHtml(html, {
+      marginPx: templateConfig.layout.pageMarginY,
+      backgroundColor: templateConfig.colors.background,
+    });
     return new NextResponse(new Uint8Array(pdf), {
       headers: {
         "Content-Type": "application/pdf",

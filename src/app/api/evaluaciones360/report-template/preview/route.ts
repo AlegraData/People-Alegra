@@ -64,6 +64,8 @@ export async function POST(request: Request) {
       teamByEmail,
       icons: resolveReportIcons(fileIcons, templateConfig),
       templateConfig,
+      behaviorGroupsRaw: evaluation.behaviorGroups,
+      commentGroupsRaw: evaluation.commentGroups,
     });
     if (!reportData) {
       return NextResponse.json({ error: "Esa persona no tiene evaluaciones recibidas todavía" }, { status: 404 });
@@ -71,12 +73,22 @@ export async function POST(request: Request) {
 
     const html = buildReportHtml(reportData);
     // El editor pide "html" para la vista previa en vivo (arrastrar/redimensionar
-    // sobre el propio DOM, sin el costo de Puppeteer en cada micro-cambio); el
-    // PDF real (con paginación exacta) solo se genera bajo demanda ("Ver PDF real").
+    // y editar texto directo sobre el propio DOM, sin el costo de Puppeteer en
+    // cada micro-cambio); el PDF real (con paginación exacta) solo se genera
+    // bajo demanda ("Ver PDF real"). La vista en vivo YA NO pagina con pagedjs
+    // (se probó y es un polyfill de un solo uso: pagina al cargar y no vuelve
+    // a repaginar si el contenido cambia después — cualquier edición sobre
+    // contenido ya paginado dejaba tarjetas/gráficas mal ubicadas hasta la
+    // siguiente recarga completa, un ciclo de bugs recurrente). Se muestra
+    // como un documento continuo de una sola pieza — el layout real por
+    // páginas se confirma con "Ver PDF real" (Puppeteer, sin este problema).
     if (format === "html") {
       return new NextResponse(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }
-    const pdf = await generatePdfFromHtml(html);
+    const pdf = await generatePdfFromHtml(html, {
+      marginPx: templateConfig.layout.pageMarginY,
+      backgroundColor: templateConfig.colors.background,
+    });
     return new NextResponse(new Uint8Array(pdf), { headers: { "Content-Type": "application/pdf" } });
   } catch (error) {
     console.error("[POST report-template/preview]", error);

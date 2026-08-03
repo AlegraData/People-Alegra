@@ -28,6 +28,11 @@ export interface ReportTemplateLogo {
   /** Nudge en px sobre la posición de `align`, ajustable arrastrando el logo en el editor. Solo aplica al logo del encabezado (el del pie usa `align` sin nudge). */
   headerOffsetX: number;
   headerOffsetY: number;
+  /** Alto (px) al que se recorta el fondo decorativo del encabezado (object-fit:cover, ancla arriba)
+   *  — el archivo por defecto trae una franja plana grande antes de fundirse con el fondo de la
+   *  página, así que mostrarlo a su alto natural dejaba un hueco vacío entre la ola y el primer
+   *  título. Ajustable por si se sube un fondo con proporciones distintas. */
+  headerBgHeight: number;
 }
 
 export type ReportTemplateDensity = "compacto" | "normal" | "amplio";
@@ -81,6 +86,8 @@ export interface ReportCopyConfig {
     customDefaultDesc: string;
     customMineLabel: string;
     customBenchLabel: string;
+    /** Mensaje cuando una tarjeta comparativa no tiene datos suficientes (ej. nadie calificó ninguna pregunta de esa categoría todavía). */
+    noDataMessage: string;
   };
   comportamientos: { title: string; description: string; fortalezasLabel: string; mejorasLabel: string };
   ranking: { title: string; description: string; mineLabel: string; benchLabel: string };
@@ -121,7 +128,7 @@ export const DEFAULT_TEMPLATE_CONFIG: ReportTemplateConfig = {
     primaryDark: "#00b8a3",
     text: "#1e293b",
     textSecondary: "#64748b",
-    background: "#f1f5f9",
+    background: "#e2e8f0",
     cardBorder: "#e2e8f0",
   },
   logo: {
@@ -131,6 +138,7 @@ export const DEFAULT_TEMPLATE_CONFIG: ReportTemplateConfig = {
     size: 16,
     headerOffsetX: 0,
     headerOffsetY: 0,
+    headerBgHeight: 190,
   },
   layout: {
     pageMarginX: 32,
@@ -141,8 +149,8 @@ export const DEFAULT_TEMPLATE_CONFIG: ReportTemplateConfig = {
   },
   blocks: {
     order: ["competencias", "comparativos", "comportamientos", "ranking", "comentarios"],
-    competencias: { fontScale: 1, iconSize: 22, categoryIcons: {} },
-    comparativos: { fontScale: 1, fixedOrder: ["alegra", "team", "auto"] },
+    competencias: { fontScale: 1.15, iconSize: 25, categoryIcons: {} },
+    comparativos: { fontScale: 1.15, fixedOrder: ["alegra", "team", "auto"] },
     comportamientos: { fontScale: 1 },
     ranking: { fontScale: 1 },
     comentarios: { fontScale: 1 },
@@ -176,6 +184,7 @@ export const DEFAULT_TEMPLATE_CONFIG: ReportTemplateConfig = {
       customDefaultDesc: "Revisa cómo las opiniones recibidas sobre ti se comparan con el promedio Alegra, Technical Team y Autoevaluación.",
       customMineLabel: "Alegra",
       customBenchLabel: "Equipo/Auto",
+      noDataMessage: "Sin datos suficientes todavía.",
     },
     comportamientos: {
       title: "Comportamientos evaluados",

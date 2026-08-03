@@ -55,6 +55,45 @@ export interface CustomReportSection {
   position?: ReportSectionPosition;
 }
 
+/** Una pregunta abierta concreta (de un tipo de evaluación) mapeada a un
+ *  `CommentGroup` — cada tipo suele redactar la misma pregunta distinto
+ *  ("tu líder" / "este colaborador" / "tu compañero/a"), así que el admin
+ *  elige a mano cuál de cada tipo corresponde al mismo grupo. */
+export interface CommentGroupEntry {
+  type: EvalType;
+  questionId: string;
+}
+
+/** Agrupa preguntas abiertas equivalentes de distintos tipos de evaluación
+ *  (ascendente/descendente/paralela — autoevaluación no aplica) bajo un solo
+ *  título de "Comentarios" en el reporte PDF, en vez de una tarjeta separada
+ *  por cada tipo. Definido por el admin desde Reportes → Configuración. */
+export interface CommentGroup {
+  id: string;
+  title: string;
+  entries: CommentGroupEntry[];
+}
+
+/** Una pregunta rating concreta (de un tipo de evaluación) mapeada a un
+ *  `BehaviorGroup` — mismo criterio que `CommentGroupEntry` pero para
+ *  preguntas calificadas en vez de abiertas. */
+export interface BehaviorGroupEntry {
+  type: EvalType;
+  questionId: string;
+}
+
+/** Agrupa preguntas rating equivalentes de distintos tipos de evaluación
+ *  (ascendente/descendente/paralela) bajo un solo nombre en "Comportamientos
+ *  evaluados" y "Resultados individuales por comportamiento" — en vez de una
+ *  fila por cada pregunta individual. El score del grupo se calcula igual
+ *  que una `CustomReportSection` (promedio ponderado por el `weight` propio
+ *  de cada pregunta mapeada). Definido por el admin desde Reportes → Configuración. */
+export interface BehaviorGroup {
+  id: string;
+  title: string;
+  entries: BehaviorGroupEntry[];
+}
+
 /** Preguntas organizadas por tipo de evaluación */
 export type Eval360Questions = Record<EvalType, Eval360Question[]>;
 
@@ -93,6 +132,13 @@ export interface Evaluation360 {
   weightAutoevaluacion: number;
   questions: Eval360Questions;
   reportSections: CustomReportSection[];
+  /** Agrupa preguntas rating equivalentes de "Comportamientos evaluados" y
+   *  "Resultados individuales por comportamiento" bajo un nombre propio (ej.
+   *  "Compromiso"), elegidas a mano por tipo de evaluación — igual mecánica
+   *  que `commentGroups`. Si está vacío, esos bloques muestran una fila por
+   *  cada pregunta individual (comportamiento por defecto). */
+  behaviorGroups: BehaviorGroup[];
+  commentGroups: CommentGroup[];
   emailSubject?: string | null;
   emailBody?: string | null;
   emailButtonText?: string | null;

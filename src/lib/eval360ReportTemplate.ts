@@ -107,26 +107,22 @@ function stripAccents(s: string): string {
   return s.normalize("NFD").replace(/[̀-ͯ]/g, "");
 }
 
-// Reemplaza `{{clave}}` en un texto de `ReportCopyConfig` por el valor dado —
-// así el admin puede editar libremente el texto sin perder los datos dinámicos
-// (nombre, equipo, total de evaluaciones, texto de la pregunta). Los valores
-// NO se escapan aquí: se usa solo para texto ya destinado a HTML plano (no
-// para casos donde una parte deba ir en <strong>, ver `renderWithBold()`).
-function interpolate(template: string, vars: Record<string, string>): string {
-  return esc(template).replace(/\{\{(\w+)\}\}/g, (_, key) => esc(vars[key] ?? ""));
-}
-
-// Igual, pero sin escapar — para valores que se van a pasar por `esc()` una
-// sola vez más adelante en el punto donde se renderizan (evita doble escape).
+// Reemplaza `{{clave}}` en una plantilla de `ReportCopyConfig` por el valor
+// dado — así el admin puede editar libremente el texto sin perder los datos
+// dinámicos (nombre, equipo, total de evaluaciones, texto de la pregunta).
+// Todos los campos de copy con placeholders son "ricos" (HTML de Tiptap, ver
+// `editAttrs`), así que la plantilla YA viene con su propio marcado y no debe
+// escaparse — solo el valor sustituido se escapa cuando no es del propio
+// editor de la plantilla (ej. el texto de una pregunta de la encuesta).
 function interpolateRaw(template: string, vars: Record<string, string>): string {
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? "");
 }
 
-// Igual que `interpolate()`, pero envuelve el valor sustituido en <strong> —
-// para textos donde una parte (ej. el texto de la pregunta en Comentarios)
-// debe resaltarse en negrita dentro de una oración editable por el admin.
-function renderWithBold(template: string, placeholder: string, value: string): string {
-  const parts = esc(template).split(`{{${placeholder}}}`);
+// Igual que `interpolateRaw()`, pero envuelve el valor sustituido en
+// <strong> — para textos donde una parte (ej. el texto de la pregunta en
+// Comentarios) debe resaltarse en negrita dentro de una oración editable.
+function renderWithBoldRaw(template: string, placeholder: string, value: string): string {
+  const parts = template.split(`{{${placeholder}}}`);
   return parts.join(`<strong>${esc(value)}</strong>`);
 }
 
@@ -156,6 +152,36 @@ function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// Para meter texto arbitrario dentro de un atributo HTML (data-raw="...") —
+// esc() no alcanza porque no escapa comillas dobles, que romperían el atributo.
+// Los saltos de línea van como referencia numérica (&#10;) y no como el
+// caracter literal: por spec HTML, el parser normaliza cualquier salto de
+// línea/tab literal DENTRO de un valor de atributo a un solo espacio (a
+// diferencia del contenido de texto normal, donde sí se preservan) — con el
+// caracter literal, un texto editado con varias líneas se aplanaría a una
+// sola apenas se recargara la vista previa. Una referencia numérica sobrevive
+// intacta ese parseo y `getAttribute()` la devuelve ya decodificada a "\n".
+function escAttr(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/\n/g, "&#10;").replace(/\r/g, "&#13;").replace(/\t/g, "&#9;");
+}
+
+// Atributos que convierten un elemento en editable desde la vista en vivo del
+// editor (ver attachEditHandles en EvalReportTemplateEditor.tsx): `path` es la
+// ruta dentro de `ReportTemplateConfig.copy` a la que se escribe el cambio,
+// `raw` es el texto SIN interpolar (con sus {{placeholders}} intactos, si
+// tiene) y `display` es lo que de verdad se ve ahora (con los placeholders ya
+// resueltos para esta persona — igual a `raw` si el texto no tiene ninguno).
+// Todo campo de copy (títulos cortos, leyendas de gráficas y párrafos por
+// igual) se edita EN LÍNEA con la misma paleta de texto enriquecido — sin
+// distinción "rich"/"plano": ver `mountRichEditor` en
+// EvalReportTemplateEditor.tsx. Por eso el elemento que lleva estos atributos
+// SIEMPRE es un <div> (nunca <p>/<span>/<h1>): Tiptap envuelve su contenido en
+// bloques (<p>, listas, etc.), que no son válidos dentro de esas etiquetas.
+function editAttrs(path: string, raw: string, display?: string): string {
+  return `data-edit-copy="${path}" data-raw="${escAttr(raw)}" data-interpolated="${escAttr(display ?? raw)}"`;
+}
+
 function fmt(n: number): string {
   return n.toFixed(1);
 }
@@ -178,6 +204,7 @@ interface Theme {
   logoSize: number;
   logoOffsetX: number;
   logoOffsetY: number;
+  headerBgHeight: number;
 }
 
 function buildTheme(config: ReportTemplateConfig): Theme {
@@ -197,6 +224,7 @@ function buildTheme(config: ReportTemplateConfig): Theme {
     logoSize: config.logo.size,
     logoOffsetX: config.logo.headerOffsetX,
     logoOffsetY: config.logo.headerOffsetY,
+    headerBgHeight: config.logo.headerBgHeight,
   };
 }
 
@@ -218,9 +246,9 @@ function logoBlock(theme: Theme, logoDataUri: string | null | undefined, size: n
 // página (grid 2x2), igual que en la plantilla de referencia. `blockScale`
 // combina la densidad global con el tamaño de letra propio del bloque
 // "Comparativos" — escala tanto el gráfico como sus etiquetas.
-function groupedBarChart(theme: Theme, blockScale: number, rows: CategoryComparisonRow[], max: number, mineLabel: string, benchLabel: string): string {
+function groupedBarChart(theme: Theme, blockScale: number, rows: CategoryComparisonRow[], max: number, mineLabel: string, benchLabel: string, mineLabelPath: string, benchLabelPath: string, noDataMessage: string): string {
   if (rows.length === 0) {
-    return `<p style="color:${SLATE_LIGHT};font-size:11px;text-align:center;padding:16px 0;">Sin datos suficientes todavía.</p>`;
+    return `<div ${editAttrs("comparativos.noDataMessage", noDataMessage)} style="color:${SLATE_LIGHT};font-size:11px;text-align:center;padding:16px 0;">${noDataMessage}</div>`;
   }
   const chartH = Math.round(95 * blockScale);
   const barW = Math.round(20 * blockScale);
@@ -253,8 +281,8 @@ function groupedBarChart(theme: Theme, blockScale: number, rows: CategoryCompari
 
   return `
     <div style="display:flex;align-items:center;gap:8px;justify-content:center;margin-bottom:4px;">
-      <span style="display:inline-flex;align-items:center;gap:4px;font-size:9px;color:${theme.textSecondary};"><span style="width:8px;height:8px;border-radius:2px;background:${theme.primary};display:inline-block;"></span>${esc(mineLabel)}</span>
-      <span style="display:inline-flex;align-items:center;gap:4px;font-size:9px;color:${theme.textSecondary};"><span style="width:8px;height:8px;border-radius:2px;background:${GRAY};display:inline-block;"></span>${esc(benchLabel)}</span>
+      <span style="display:inline-flex;align-items:center;gap:4px;font-size:9px;color:${theme.textSecondary};"><span style="width:8px;height:8px;border-radius:2px;background:${theme.primary};display:inline-block;"></span><div ${editAttrs(mineLabelPath, mineLabel)} style="display:inline-block;">${mineLabel}</div></span>
+      <span style="display:inline-flex;align-items:center;gap:4px;font-size:9px;color:${theme.textSecondary};"><span style="width:8px;height:8px;border-radius:2px;background:${GRAY};display:inline-block;"></span><div ${editAttrs(benchLabelPath, benchLabel)} style="display:inline-block;">${benchLabel}</div></span>
     </div>
     <svg width="100%" height="${chartH + 28}" viewBox="0 0 ${width} ${chartH + 28}" xmlns="http://www.w3.org/2000/svg">${bars}</svg>`;
 }
@@ -264,7 +292,7 @@ function groupedBarChart(theme: Theme, blockScale: number, rows: CategoryCompari
 // no cabe en lo que queda de la página, salta entero a la siguiente y deja un
 // hueco en blanco. Con filas HTML normales, el navegador sí puede cortar entre
 // una fila y otra con naturalidad.
-function horizontalRankingChart(theme: Theme, blockScale: number, rows: QuestionRankingRow[], max: number, mineLabel: string, benchLabel: string): string {
+function horizontalRankingChart(theme: Theme, blockScale: number, rows: QuestionRankingRow[], max: number, mineLabel: string, benchLabel: string, mineLabelPath: string, benchLabelPath: string): string {
   if (rows.length === 0) return "";
   const pct = (v: number) => (max > 0 ? Math.min((v / max) * 100, 100) : 0);
   const fontSize = Math.round(10 * blockScale);
@@ -281,8 +309,8 @@ function horizontalRankingChart(theme: Theme, blockScale: number, rows: Question
 
   return `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-      <span style="display:inline-flex;align-items:center;gap:5px;font-size:${fontSize}px;color:${theme.textSecondary};"><span style="width:9px;height:9px;border-radius:3px;background:${theme.primary};display:inline-block;"></span>${esc(mineLabel)}</span>
-      <span style="display:inline-flex;align-items:center;gap:5px;font-size:${fontSize}px;color:${theme.textSecondary};"><span style="width:9px;height:9px;border-radius:3px;background:${GRAY};display:inline-block;"></span>${esc(benchLabel)}</span>
+      <span style="display:inline-flex;align-items:center;gap:5px;font-size:${fontSize}px;color:${theme.textSecondary};"><span style="width:9px;height:9px;border-radius:3px;background:${theme.primary};display:inline-block;"></span><div ${editAttrs(mineLabelPath, mineLabel)} style="display:inline-block;">${mineLabel}</div></span>
+      <span style="display:inline-flex;align-items:center;gap:5px;font-size:${fontSize}px;color:${theme.textSecondary};"><span style="width:9px;height:9px;border-radius:3px;background:${GRAY};display:inline-block;"></span><div ${editAttrs(benchLabelPath, benchLabel)} style="display:inline-block;">${benchLabel}</div></span>
     </div>
     <div>${barRows}</div>`;
 }
@@ -300,11 +328,15 @@ function competencyCards(theme: Theme, blockScale: number, iconSize: number, cat
     const icon = categoryIcon(cat, icons, categoryIconsOverride);
     const isFirstIcon = icon && !firstIconTagged;
     if (isFirstIcon) firstIconTagged = true;
+    // El título de cada tarjeta es el nombre literal de la categoría (viene
+    // de las preguntas de la encuesta, no de config.copy) — no es editable
+    // aquí, solo la descripción (que sí vive en copy.competencias.categoryDescriptions).
+    const descPath = `competencias.categoryDescriptions::${cat}`;
     return `
-      <div class="card" style="flex:1;min-width:150px;position:relative;background:${theme.background};">
+      <div class="card" style="flex:1;min-width:150px;position:relative;">
         ${icon ? `<img src="${icon}" alt="" ${isFirstIcon ? 'data-edit="icon"' : ""} style="position:absolute;top:${-iconSize / 2}px;right:14px;width:${iconSize}px;height:${iconSize}px;object-fit:contain;" />` : ""}
         <p style="font-weight:700;color:${theme.text};font-size:${titleSize}px;margin:0 0 5px;padding-right:${icon ? iconSize + 10 : 0}px;">${esc(cat)}</p>
-        ${desc ? `<p style="font-size:${descSize}px;color:${theme.textSecondary};line-height:1.45;margin:0;">${esc(desc)}</p>` : ""}
+        ${desc ? `<div ${editAttrs(descPath, desc)} style="font-size:${descSize}px;color:${theme.textSecondary};line-height:1.45;margin:0;">${desc}</div>` : ""}
       </div>`;
   }).join("");
 }
@@ -317,13 +349,13 @@ function numberedList(theme: Theme, blockScale: number, items: string[]): string
 // Insignia circular centrada en el borde superior de la tarjeta (Fortalezas /
 // Puntos de mejora), con la etiqueta debajo — mismo tratamiento que el PDF de
 // referencia, en vez del ícono en línea junto al texto.
-function badgedCardTitle(iconUri: string | null | undefined, fallbackEmoji: string, label: string, badgeSize: number): string {
+function badgedCardTitle(iconUri: string | null | undefined, fallbackEmoji: string, label: string, badgeSize: number, labelPath: string): string {
   const badge = iconUri
     ? `<img src="${iconUri}" alt="" style="width:${badgeSize}px;height:${badgeSize}px;object-fit:contain;" />`
     : `<span style="font-size:${Math.round(badgeSize * 0.6)}px;">${fallbackEmoji}</span>`;
   return `
     <div style="position:absolute;top:${-badgeSize / 2}px;left:50%;transform:translateX(-50%);width:${badgeSize}px;height:${badgeSize}px;display:flex;align-items:center;justify-content:center;">${badge}</div>
-    <p style="font-weight:700;font-size:12px;margin:${badgeSize / 2 + 6}px 0 8px;">${esc(label)}</p>`;
+    <div ${editAttrs(labelPath, label)} style="font-weight:700;font-size:12px;margin:${badgeSize / 2 + 6}px 0 8px;">${label}</div>`;
 }
 
 // Cada comentario individual evita partirse a la mitad (break-inside:avoid en
@@ -338,11 +370,11 @@ function commentSection(theme: Theme, blockScale: number, cardTitle: string, que
   const titleSize = Math.round(13 * blockScale);
   const descSize = Math.round(10 * blockScale);
   const textSize = (10.5 * blockScale).toFixed(1);
-  const questionIntro = renderWithBold(questionIntroTemplate, "pregunta", c.questionText);
+  const questionIntro = renderWithBoldRaw(questionIntroTemplate, "pregunta", c.questionText);
   return `
     <div class="card" style="margin-bottom:14px;">
-      <p style="font-weight:800;font-size:${titleSize}px;color:${theme.text};text-align:center;margin:0 0 6px;">${esc(cardTitle)}</p>
-      <p style="font-size:${descSize}px;color:${theme.textSecondary};text-align:center;margin:0 0 10px;">${questionIntro}</p>
+      <div ${editAttrs("comentarios.cardTitle", cardTitle)} style="font-weight:800;font-size:${titleSize}px;color:${theme.text};text-align:center;margin:0 0 6px;">${cardTitle}</div>
+      <div ${editAttrs("comentarios.questionIntro", questionIntroTemplate, renderWithBoldRaw(questionIntroTemplate, "pregunta", c.questionText))} style="font-size:${descSize}px;color:${theme.textSecondary};text-align:center;margin:0 0 10px;">${questionIntro}</div>
       <div style="display:flex;flex-direction:column;gap:7px;">
         ${c.answers.map((a) => `<p style="background:#f8fafc;border-radius:10px;padding:10px 13px;font-size:${textSize}px;color:${theme.textSecondary};font-style:italic;line-height:1.45;margin:0;break-inside:avoid;">&ldquo;${esc(a)}&rdquo;</p>`).join("")}
       </div>
@@ -368,21 +400,25 @@ export function buildReportHtml(data: Eval360ReportData): string {
 
   // Tarjetas del comparativo: las 3 fijas en el orden configurado, más cada
   // sección personalizada insertada justo después de su ancla (o al final).
-  const anchorCards: Record<AnchorKey, { title: string; desc: string; chart: string }> = {
+  // `titlePath`/`descPath` quedan `null` para lo que NO viene de config.copy
+  // (el nombre/descripción de una sección personalizada es dato de la
+  // encuesta, no de la plantilla global) — esas tarjetas muestran texto fijo,
+  // no editable en línea.
+  const anchorCards: Record<AnchorKey, { title: string; titlePath: string; desc: string; descRaw: string; descPath: string; chart: string }> = {
     alegra: {
-      title: copy.comparativos.alegra.title,
-      desc: copy.comparativos.alegra.desc,
-      chart: groupedBarChart(theme, comparativosScale, data.vsAlegra, data.ratingMax, copy.comparativos.alegra.mineLabel, copy.comparativos.alegra.benchLabel),
+      title: copy.comparativos.alegra.title, titlePath: "comparativos.alegra.title",
+      desc: copy.comparativos.alegra.desc, descRaw: copy.comparativos.alegra.desc, descPath: "comparativos.alegra.desc",
+      chart: groupedBarChart(theme, comparativosScale, data.vsAlegra, data.ratingMax, copy.comparativos.alegra.mineLabel, copy.comparativos.alegra.benchLabel, "comparativos.alegra.mineLabel", "comparativos.alegra.benchLabel", copy.comparativos.noDataMessage),
     },
     team: {
-      title: copy.comparativos.team.title,
-      desc: interpolateRaw(copy.comparativos.team.desc, { equipo: data.team ? ` (${data.team})` : "" }),
-      chart: groupedBarChart(theme, comparativosScale, data.vsTeam, data.ratingMax, copy.comparativos.team.mineLabel, copy.comparativos.team.benchLabel),
+      title: copy.comparativos.team.title, titlePath: "comparativos.team.title",
+      desc: interpolateRaw(copy.comparativos.team.desc, { equipo: data.team ? ` (${data.team})` : "" }), descRaw: copy.comparativos.team.desc, descPath: "comparativos.team.desc",
+      chart: groupedBarChart(theme, comparativosScale, data.vsTeam, data.ratingMax, copy.comparativos.team.mineLabel, copy.comparativos.team.benchLabel, "comparativos.team.mineLabel", "comparativos.team.benchLabel", copy.comparativos.noDataMessage),
     },
     auto: {
-      title: copy.comparativos.auto.title,
-      desc: copy.comparativos.auto.desc,
-      chart: groupedBarChart(theme, comparativosScale, data.vsAuto, data.ratingMax, copy.comparativos.auto.mineLabel, copy.comparativos.auto.benchLabel),
+      title: copy.comparativos.auto.title, titlePath: "comparativos.auto.title",
+      desc: copy.comparativos.auto.desc, descRaw: copy.comparativos.auto.desc, descPath: "comparativos.auto.desc",
+      chart: groupedBarChart(theme, comparativosScale, data.vsAuto, data.ratingMax, copy.comparativos.auto.mineLabel, copy.comparativos.auto.benchLabel, "comparativos.auto.mineLabel", "comparativos.auto.benchLabel", copy.comparativos.noDataMessage),
     },
   };
   const afterMap: Record<AnchorKey, CustomSectionResult[]> = { alegra: [], team: [], auto: [] };
@@ -394,12 +430,16 @@ export function buildReportHtml(data: Eval360ReportData): string {
     else if (pos === "after-auto") afterMap.auto.push(section);
     else endList.push(section);
   });
-  const sectionToCard = (section: CustomSectionResult) => ({
-    title: `Análisis de ${section.name}`,
-    desc: section.description ?? copy.comparativos.customDefaultDesc,
-    chart: groupedBarChart(theme, comparativosScale, section.rows, data.ratingMax, copy.comparativos.customMineLabel, copy.comparativos.customBenchLabel),
-  });
-  const comparisonCards: { title: string; desc: string; chart: string }[] = [];
+  const sectionToCard = (section: CustomSectionResult) => {
+    const usingDefaultDesc = section.description === undefined;
+    const desc = section.description ?? copy.comparativos.customDefaultDesc;
+    return {
+      title: `Análisis de ${section.name}`, titlePath: "",
+      desc, descRaw: desc, descPath: usingDefaultDesc ? "comparativos.customDefaultDesc" : "",
+      chart: groupedBarChart(theme, comparativosScale, section.rows, data.ratingMax, copy.comparativos.customMineLabel, copy.comparativos.customBenchLabel, "comparativos.customMineLabel", "comparativos.customBenchLabel", copy.comparativos.noDataMessage),
+    };
+  };
+  const comparisonCards: { title: string; titlePath: string; desc: string; descRaw: string; descPath: string; chart: string }[] = [];
   config.blocks.comparativos.fixedOrder.forEach((key) => {
     comparisonCards.push(anchorCards[key]);
     afterMap[key].forEach((s) => comparisonCards.push(sectionToCard(s)));
@@ -410,41 +450,44 @@ export function buildReportHtml(data: Eval360ReportData): string {
   // según `config.blocks.order`.
   const blockHtml: Record<ReportBlockId, string> = {
     competencias: `
-      <p class="section-title">${esc(copy.competencias.title)}</p>
+      <div class="section-title" ${editAttrs("competencias.title", copy.competencias.title)}>${copy.competencias.title}</div>
       <div class="grid">${competencyCards(theme, competenciasScale, config.blocks.competencias.iconSize, categories, icons, config.blocks.competencias.categoryIcons, copy.competencias.categoryDescriptions)}</div>`,
     comparativos: `
-      <p class="section-title">${esc(copy.comparativos.title)}</p>
-      <div class="grid">
+      <div class="section-title" ${editAttrs("comparativos.title", copy.comparativos.title)}>${copy.comparativos.title}</div>
+      <div class="grid-2">
         ${comparisonCards.map((c) => `
           <div class="card">
-            <p style="font-weight:700;font-size:12px;margin:0 0 3px;">${esc(c.title)}</p>
-            <p style="font-size:10px;color:${theme.textSecondary};margin:0 0 8px;">${esc(c.desc)}</p>
+            <div ${c.titlePath ? editAttrs(c.titlePath, c.title) : ""} style="font-weight:700;font-size:12px;margin:0 0 3px;">${c.titlePath ? c.title : esc(c.title)}</div>
+            <div ${c.descPath ? editAttrs(c.descPath, c.descRaw, c.desc) : ""} style="font-size:10px;color:${theme.textSecondary};margin:0 0 8px;">${c.descPath ? c.desc : esc(c.desc)}</div>
             ${c.chart}
           </div>`).join("")}
       </div>`,
     comportamientos: `
-      <p class="section-title">${esc(copy.comportamientos.title)}</p>
-      <p style="font-size:10px;color:${theme.textSecondary};text-align:center;max-width:620px;margin:0 auto 10px;">
-        ${interpolate(copy.comportamientos.description, { total: String(data.totalReceived) })}
-      </p>
+      <div class="section-title" ${editAttrs("comportamientos.title", copy.comportamientos.title)}>${copy.comportamientos.title}</div>
+      <div ${editAttrs("comportamientos.description", copy.comportamientos.description, interpolateRaw(copy.comportamientos.description, { total: String(data.totalReceived) }))} style="font-size:10px;color:${theme.textSecondary};text-align:center;max-width:620px;margin:0 auto 10px;">
+        ${interpolateRaw(copy.comportamientos.description, { total: String(data.totalReceived) })}
+      </div>
       <div class="grid">
         <div class="card" style="position:relative;">
-          ${badgedCardTitle(icons.fortalezas, "🏆", copy.comportamientos.fortalezasLabel, 36)}
+          ${badgedCardTitle(icons.fortalezas, "🏆", copy.comportamientos.fortalezasLabel, 36, "comportamientos.fortalezasLabel")}
           ${numberedList(theme, comportamientosScale, data.strengths)}
         </div>
         <div class="card" style="position:relative;">
-          ${badgedCardTitle(icons.puntosMejora, "📝", copy.comportamientos.mejorasLabel, 36)}
+          ${badgedCardTitle(icons.puntosMejora, "📝", copy.comportamientos.mejorasLabel, 36, "comportamientos.mejorasLabel")}
           ${numberedList(theme, comportamientosScale, data.improvements)}
         </div>
       </div>`,
     ranking: `
-      <p class="section-title">${esc(copy.ranking.title)}</p>
+      <div class="section-title" ${editAttrs("ranking.title", copy.ranking.title)}>${copy.ranking.title}</div>
       <div class="card">
-        <p style="font-size:10px;color:${theme.textSecondary};margin:0 0 8px;">${esc(copy.ranking.description)}</p>
-        ${horizontalRankingChart(theme, rankingScale, data.questionRanking, data.ratingMax, copy.ranking.mineLabel, copy.ranking.benchLabel)}
+        <div ${editAttrs("ranking.description", copy.ranking.description)} style="font-size:10px;color:${theme.textSecondary};margin:0 0 8px;">${copy.ranking.description}</div>
+        ${horizontalRankingChart(theme, rankingScale, data.questionRanking, data.ratingMax, copy.ranking.mineLabel, copy.ranking.benchLabel, "ranking.mineLabel", "ranking.benchLabel")}
       </div>`,
     comentarios: data.comments.map((c) => commentSection(theme, comentariosScale, copy.comentarios.cardTitle, copy.comentarios.questionIntro, c)).join(""),
   };
+  // La página 1 debe quedar solo con "Competencias analizadas" y
+  // "Comparativo de tus resultados" — el corte forzado vive en la regla CSS
+  // [data-edit-block="comparativos"] de arriba (ver por qué no es style="" inline).
   const orderedBlocks = config.blocks.order.map((id) => `<div data-edit-block="${id}">${blockHtml[id]}</div>`).join("\n");
 
   return `<!DOCTYPE html>
@@ -453,13 +496,51 @@ export function buildReportHtml(data: Eval360ReportData): string {
 <meta charset="UTF-8"/>
 <style>
   * { box-sizing: border-box; overflow-wrap: anywhere; }
-  @page { size: A4; margin: 0; }
-  body { margin:0; font-family: 'Segoe UI', Arial, sans-serif; background:#fff; color:${theme.text}; }
-  .page { position:relative; padding: ${theme.pageMarginY}px ${theme.pageMarginX}px; }
+  /* El margen vertical vive en @page (se repite en CADA hoja al paginar el
+     PDF real con Puppeteer) — antes vivía como padding de .page, un único
+     div que abarca todo el documento, así que ese padding solo se aplicaba
+     al principio/final de TODO el flujo, no en cada corte de página
+     intermedio (quedaban pegados al borde). El horizontal se deja en .page
+     porque ese sí se repite bien por página (no depende de fragmentación
+     vertical). En la vista en vivo (documento continuo, sin paginar) estas
+     reglas de @page no aplican — un navegador normal solo las honra al
+     imprimir/generar PDF. */
+  /* @top-center/@bottom-center: Chromium (Puppeteer) ignora esta sintaxis de
+     margin-boxes de CSS Paged Media al generar el PDF real, por eso ese
+     margen necesita su propio mecanismo aparte: headerTemplate/footerTemplate
+     en generatePdf.ts, con el mismo color. Estas reglas quedan aquí sin
+     efecto práctico (ni en el PDF real ni en la vista en vivo) — se
+     mantienen documentadas por si algún renderer futuro sí las soporta. */
+  @page {
+    size: A4; margin: ${theme.pageMarginY}px 0;
+    @top-center { content: ""; background: ${theme.background}; }
+    @bottom-center { content: ""; background: ${theme.background}; }
+  }
+  body { margin:0; font-family: 'Segoe UI', Arial, sans-serif; background:${theme.background}; color:${theme.text}; }
+  .page { position:relative; padding: 0 ${theme.pageMarginX}px; }
   .card { background:#fff; border:1px solid ${theme.cardBorder}; border-radius:${theme.cardRadius}px; padding:${theme.cardPadding}px ${theme.cardPadding + 2}px; break-inside:avoid; }
-  .section-title { font-size:13px; font-weight:800; color:${theme.text}; text-align:center; margin: 18px 0 10px; break-after: avoid-page; break-inside: avoid; }
+  .section-title { font-size:13px; font-weight:800; color:${theme.text}; text-align:center; margin: 30px 0 12px; break-after: avoid-page; break-inside: avoid; }
+  /* El primer bloque de la página (justo debajo del encabezado) no necesita
+     el mismo margen superior que separa un bloque del siguiente — ese
+     espacio ya lo da el propio encabezado, y sumar los dos dejaba un hueco
+     vacío entre el fondo decorativo y "Competencias analizadas". */
+  .page > div:first-child .section-title { margin-top: 0; }
+  /* Todo texto editable en línea (ver editAttrs) admite saltos de línea
+     manuales — sin esto, un "\n" en el texto se colapsa a un espacio como
+     cualquier otro whitespace normal de HTML. */
+  [data-edit-copy] { white-space: pre-wrap; }
   .grid { display:flex; gap:10px; flex-wrap:wrap; }
   .grid > .card { flex:1; min-width:220px; }
+  /* Comparativo de tus resultados: siempre 2 columnas (2x2 con las 4
+     tarjetas típicas: Alegra/Team/Auto + Alineación Cultural), sin importar
+     cuántas tarjetas haya ni el ancho disponible — a diferencia de .grid
+     (flex-wrap), que acomoda 3 en la primera fila y deja 1 sola en la
+     segunda cuando caben 3 de 220px de ancho. */
+  .grid-2 { display:grid; grid-template-columns: repeat(2, 1fr); gap:10px; }
+  /* break-after: page solo tiene efecto en el PDF real (Puppeteer) — en la
+     vista en vivo (documento continuo) un navegador normal lo ignora fuera
+     de impresión, así que este bloque simplemente sigue en el mismo flujo. */
+  [data-edit-block="comparativos"] { break-after: page; }
 </style>
 </head>
 <body>
@@ -469,14 +550,22 @@ export function buildReportHtml(data: Eval360ReportData): string {
        un contenedor con overflow:hidden — así la fila crece hasta la altura
        que necesite el texto (ahora editable, largo variable) sin recortarlo,
        y la imagen conserva su proporción real sin deformarse ni ser recortada. -->
-  <div style="display:grid;background:${theme.background};">
+  <!-- margin-top negativo: compensa exactamente el margin-top de @page para
+       que el fondo decorativo del encabezado siga llegando al borde físico
+       de la hoja 1, ahora que ese margen ya no es 0 (ver @page arriba). -->
+  <div style="display:grid;background:${theme.background};margin-top:-${theme.pageMarginY}px;">
+    <!-- object-fit:cover + un alto fijo (en vez de height:auto con la
+         proporción natural completa) recorta la franja plana que trae el
+         fondo decorativo por defecto antes de fundirse con el color de
+         página — mostrarlo entero dejaba un hueco vacío entre la ola y el
+         primer título. object-position:top conserva la parte con dibujo. -->
     ${icons.headerBg
-      ? `<img src="${icons.headerBg}" alt="" style="grid-area:1/1;align-self:start;width:100%;height:auto;" />`
-      : `<div style="grid-area:1/1;height:150px;"></div>`}
-    <div style="grid-area:1/1;align-self:start;padding:20px ${theme.pageMarginX}px 26px;">
+      ? `<img src="${icons.headerBg}" alt="" style="grid-area:1/1;align-self:start;width:100%;height:${theme.headerBgHeight}px;object-fit:cover;object-position:top;" />`
+      : `<div style="grid-area:1/1;height:${theme.headerBgHeight}px;"></div>`}
+    <div style="grid-area:1/1;align-self:start;padding:20px ${theme.pageMarginX}px 12px;">
       <div style="display:flex;justify-content:${justify};margin:0 0 14px;"><div data-edit="logo" style="transform:translate(${theme.logoOffsetX}px,${theme.logoOffsetY}px);">${logoBlock(theme, icons.logo, theme.logoSize)}</div></div>
-      <h1 style="font-size:20px;font-weight:900;color:${theme.text};margin:0 0 6px;">${interpolate(copy.header.greeting, { nombre: firstName })}</h1>
-      <p style="font-size:12px;color:${theme.textSecondary};margin:0;max-width:480px;">${esc(copy.header.subtitle)}</p>
+      <div ${editAttrs("header.greeting", copy.header.greeting, interpolateRaw(copy.header.greeting, { nombre: firstName }))} style="font-size:20px;font-weight:900;color:${theme.text};margin:0 0 6px;">${interpolateRaw(copy.header.greeting, { nombre: firstName })}</div>
+      <div ${editAttrs("header.subtitle", copy.header.subtitle)} style="font-size:12px;color:${theme.textSecondary};margin:0;max-width:480px;">${copy.header.subtitle}</div>
     </div>
   </div>
 
@@ -488,11 +577,11 @@ export function buildReportHtml(data: Eval360ReportData): string {
          contenido estructurado — posicionados por coordenadas absolutas
          relativas a .page. Con customTextBoxes:[] (default) no renderiza nada. -->
     ${config.customTextBoxes.map((box) => `
-      <div data-edit-textbox="${box.id}" style="position:absolute;left:${box.x}px;top:${box.y}px;width:${box.width}px;color:${esc(box.color)};font-size:${box.fontSize}px;white-space:pre-wrap;overflow-wrap:anywhere;break-inside:avoid;z-index:50;">${esc(box.text)}</div>`).join("")}
+      <div data-edit-textbox="${box.id}" style="position:absolute;left:${box.x}px;top:${box.y}px;width:${box.width}px;color:${esc(box.color)};font-size:${box.fontSize}px;overflow-wrap:anywhere;break-inside:avoid;z-index:50;">${box.text}</div>`).join("")}
 
     <div style="text-align:center;margin-top:18px;padding:16px 0;">
-      <p style="font-size:11px;font-weight:700;color:${theme.text};margin:0 0 3px;">${esc(copy.footer.line1)}</p>
-      <p style="font-size:11px;font-weight:700;color:${theme.text};margin:0 0 12px;">${esc(copy.footer.line2)}</p>
+      <div ${editAttrs("footer.line1", copy.footer.line1)} style="font-size:11px;font-weight:700;color:${theme.text};margin:0 0 3px;">${copy.footer.line1}</div>
+      <div ${editAttrs("footer.line2", copy.footer.line2)} style="font-size:11px;font-weight:700;color:${theme.text};margin:0 0 12px;">${copy.footer.line2}</div>
       <div style="display:flex;justify-content:${justify};">${logoBlock(theme, icons.logo, Math.round(theme.logoSize * 0.875))}</div>
     </div>
 

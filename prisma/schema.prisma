@@ -208,6 +208,8 @@ model Evaluation360 {
   weightAutoevaluacion Float    @default(25)    @map("weight_autoevaluacion")
   questions            Json
   reportSections       Json     @default("[]") @map("report_sections")
+  behaviorGroups       Json     @default("[]") @map("behavior_groups")
+  commentGroups        Json     @default("[]") @map("comment_groups")
   emailSubject         String?  @map("email_subject")
   emailBody            String?  @map("email_body")
   emailButtonText      String?  @map("email_button_text")
