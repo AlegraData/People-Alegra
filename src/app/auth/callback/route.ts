@@ -80,6 +80,20 @@ export async function GET(request: NextRequest) {
       const redirectUrl = new URL(next, publicOrigin);
       const response = NextResponse.redirect(redirectUrl);
 
+      // Limpiar cualquier cookie sb-* vieja que esta sesión NO vaya a
+      // reescribir (ej. un chunk sobrante "sb-xxx-auth-token.2" de una
+      // sesión previa con más fragmentos que la actual) — si se deja,
+      // @supabase/ssr intenta reconstruir el valor combinado mezclando ese
+      // chunk viejo con los nuevos y termina en "Invalid Refresh Token:
+      // Refresh Token Not Found" de forma persistente, incluso después de
+      // un login recién exitoso.
+      const newCookieNames = new Set(cookieSetters.map((c) => c.name));
+      request.cookies.getAll().forEach((cookie) => {
+        if (cookie.name.startsWith("sb-") && !newCookieNames.has(cookie.name)) {
+          response.cookies.delete(cookie.name);
+        }
+      });
+
       // Adjuntar las cookies de sesión a la respuesta de redirección
       cookieSetters.forEach(({ name, value, options }) => {
         response.cookies.set(name, value, options as Parameters<typeof response.cookies.set>[2]);

@@ -63,11 +63,19 @@ export async function proxy(request: NextRequest) {
   // getUser() refresca la sesión si es necesario
   const { data: { user }, error } = await supabase.auth.getUser();
 
-  // Token inválido o expirado: limpiar cookies y redirigir a login
-  if (error && !isPublic) {
-    const response = NextResponse.redirect(new URL("/login", origin));
-    clearSupabaseCookies(response, request);
-    return response;
+  // Token inválido o expirado: limpiar cookies siempre, y redirigir a login
+  // solo si no estamos ya en una ruta pública. Antes esto solo limpiaba
+  // cuando `!isPublic`, así que una cookie corrupta mientras el usuario
+  // estaba parado en /login (ej. justo después de un login fallido) nunca
+  // se limpiaba ahí — se quedaba arrastrando el mismo error en cada request
+  // a /login hasta que el usuario la borrara a mano.
+  if (error) {
+    if (!isPublic) {
+      const response = NextResponse.redirect(new URL("/login", origin));
+      clearSupabaseCookies(response, request);
+      return response;
+    }
+    clearSupabaseCookies(supabaseResponse, request);
   }
 
   if (!user && !isPublic) {
