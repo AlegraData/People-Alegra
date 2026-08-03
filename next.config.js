@@ -5,7 +5,17 @@
 //   y estilos inline sin nonce (se puede endurecer luego con nonces vía middleware).
 // - connect-src limitado a la propia app y a Supabase (auth + realtime).
 // - img-src permite https: porque los avatares vienen de varios hosts de Google.
-// - frame-ancestors 'none' + X-Frame-Options bloquean clickjacking.
+// - frame-ancestors 'none' + X-Frame-Options bloquean clickjacking (que ESTA
+//   app sea enmarcada por otras — lo contrario de frame-src, que controla qué
+//   puede enmarcar ESTA app).
+// - frame-src 'self' blob: — sin `frame-src` explícito, el navegador cae a
+//   `default-src 'self'` para decidir qué puede cargar un <iframe>, y 'self'
+//   NO cubre el esquema `blob:` (a diferencia de img-src/worker-src, que sí
+//   lo listan a propósito). El editor de plantilla 360° (Reportes → Plantilla)
+//   muestra la vista en vivo y el PDF real cada uno en un <iframe src="blob:...">
+//   generado con URL.createObjectURL — sin esto, ambos quedan bloqueados por
+//   CSP en producción (no en dev, donde estos headers no se aplican), con el
+//   mensaje de Chrome "Este contenido está bloqueado".
 const csp = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline'",
@@ -14,6 +24,7 @@ const csp = [
   "font-src 'self' data:",
   "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
   "worker-src 'self' blob:",
+  "frame-src 'self' blob:",
   "frame-ancestors 'none'",
   "form-action 'self' https://*.supabase.co https://accounts.google.com",
   "base-uri 'self'",
