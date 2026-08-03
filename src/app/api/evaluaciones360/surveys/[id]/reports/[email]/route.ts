@@ -3,12 +3,7 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { createClient } from "@/utils/supabase/server";
 import { supabaseAdmin } from "@/utils/supabase/admin";
-import { buildEval360ReportData } from "@/lib/buildEval360ReportData";
-import { buildTeamByEmail } from "@/lib/eval360TeamMap";
-import { buildReportHtml } from "@/lib/eval360ReportTemplate";
-import { generatePdfFromHtml } from "@/lib/generatePdf";
-import { loadReportIcons, resolveReportIcons } from "@/lib/reportIcons";
-import { getReportTemplateConfig } from "@/lib/reportTemplateConfig";
+import { generateEval360ReportPdf } from "@/lib/eval360ReportGenerator";
 
 type Ctx = { params: Promise<{ id: string; email: string }> };
 
@@ -19,7 +14,20 @@ async function get360EffectiveRole(userId: string): Promise<string> {
   return modRoleData?.role ?? roleData?.role ?? "viewer";
 }
 
-export async function GET(_req: Request, { params }: Ctx) {
+// Un evaluado puede ver/descargar SU PROPIO reporte (sin ser admin/manager)
+// únicamente si ya se le envió por correo desde el tab "Envíos" — evita que
+// pueda adelantarse a ver el reporte antes de que el admin decida enviarlo.
+// Se filtra por evaluationId además del email: el `@@unique` de
+// Evaluation360Report es por (evaluación, evaluado), así que sin este filtro
+// alguien podría reusar el "sent" de OTRA encuesta para colarse en esta.
+async function hasSentReport(evaluationId: string, evaluateeEmail: string): Promise<boolean> {
+  const row = await prisma.evaluation360Report.findUnique({
+    where: { evaluationId_evaluateeEmail: { evaluationId, evaluateeEmail } },
+  });
+  return row?.status === "sent";
+}
+
+export async function GET(req: Request, { params }: Ctx) {
   try {
     const { id, email } = await params;
     const evaluateeEmail = decodeURIComponent(email).trim().toLowerCase();
@@ -29,46 +37,27 @@ export async function GET(_req: Request, { params }: Ctx) {
     if (authError || !user) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
     const effectiveRole = await get360EffectiveRole(user.id);
-    if (!["admin", "manager"].includes(effectiveRole))
-      return NextResponse.json({ error: "Sin permiso" }, { status: 403 });
+    const isAdminOrManager = ["admin", "manager"].includes(effectiveRole);
+    const isSelf = (user.email ?? "").trim().toLowerCase() === evaluateeEmail;
 
-    const evaluation = await prisma.evaluation360.findUnique({ where: { id } });
-    if (!evaluation) return NextResponse.json({ error: "Evaluación no encontrada" }, { status: 404 });
-
-    const submitted = await prisma.evaluation360Assignment.findMany({
-      where: { evaluationId: id, status: "submitted" },
-    });
-    if (submitted.length === 0) {
-      return NextResponse.json({ error: "Esta evaluación aún no tiene respuestas enviadas" }, { status: 400 });
+    if (!isAdminOrManager) {
+      if (!isSelf || !(await hasSentReport(id, evaluateeEmail))) {
+        return NextResponse.json({ error: "Sin permiso" }, { status: 403 });
+      }
     }
 
-    const teamByEmail = await buildTeamByEmail(submitted);
-    const [templateConfig, fileIcons] = await Promise.all([getReportTemplateConfig(), Promise.resolve(loadReportIcons())]);
-
-    const reportData = buildEval360ReportData({
-      questionsRaw: evaluation.questions,
-      reportSectionsRaw: evaluation.reportSections,
-      submitted,
-      evaluateeEmail,
-      teamByEmail,
-      icons: resolveReportIcons(fileIcons, templateConfig),
-      templateConfig,
-      behaviorGroupsRaw: evaluation.behaviorGroups,
-      commentGroupsRaw: evaluation.commentGroups,
-    });
-    if (!reportData) {
-      return NextResponse.json({ error: "Esta persona no tiene evaluaciones recibidas todavía" }, { status: 404 });
+    const result = await generateEval360ReportPdf(id, evaluateeEmail);
+    if (!result.ok) {
+      const status = result.reason === "evaluation_not_found" ? 404 : result.reason === "no_submissions" ? 400 : 404;
+      return NextResponse.json({ error: result.message }, { status });
     }
 
-    const html = buildReportHtml(reportData);
-    const pdf = await generatePdfFromHtml(html, {
-      marginPx: templateConfig.layout.pageMarginY,
-      backgroundColor: templateConfig.colors.background,
-    });
-    return new NextResponse(new Uint8Array(pdf), {
+    const download = new URL(req.url).searchParams.get("download") === "1";
+    const filename = `Feedback_360_${result.reportData.evaluateeName.replace(/\s+/g, "_")}.pdf`;
+    return new NextResponse(new Uint8Array(result.pdf), {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="Feedback_360_${reportData.evaluateeName.replace(/\s+/g, "_")}.pdf"`,
+        "Content-Disposition": `${download ? "attachment" : "inline"}; filename="${filename}"`,
       },
     });
   } catch (error) {

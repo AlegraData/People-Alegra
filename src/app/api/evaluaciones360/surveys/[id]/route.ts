@@ -47,6 +47,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
       hasAscendente, hasDescendente, hasParalela, hasAutoevaluacion,
       weightAscendente, weightDescendente, weightParalela, weightAutoevaluacion,
       questions, emailSubject, emailBody, emailButtonText, emailFooter,
+      reportEmailSubject, reportEmailBody, reportEmailButtonText, reportEmailFooter,
     } = body;
 
     const updated = await prisma.evaluation360.update({
@@ -69,6 +70,10 @@ export async function PATCH(request: Request, { params }: Ctx) {
         ...(emailBody !== undefined        && { emailBody: emailBody?.trim() || null }),
         ...(emailButtonText !== undefined  && { emailButtonText: emailButtonText?.trim() || null }),
         ...(emailFooter !== undefined      && { emailFooter: emailFooter?.trim() || null }),
+        ...(reportEmailSubject !== undefined    && { reportEmailSubject: reportEmailSubject?.trim() || null }),
+        ...(reportEmailBody !== undefined       && { reportEmailBody: reportEmailBody?.trim() || null }),
+        ...(reportEmailButtonText !== undefined && { reportEmailButtonText: reportEmailButtonText?.trim() || null }),
+        ...(reportEmailFooter !== undefined     && { reportEmailFooter: reportEmailFooter?.trim() || null }),
       },
     });
 

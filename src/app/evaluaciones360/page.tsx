@@ -12,6 +12,7 @@ import EvalReports         from "@/components/evaluaciones360/EvalReports";
 import EvalChangeRequests  from "@/components/evaluaciones360/EvalChangeRequests";
 import EvalRequestModal    from "@/components/evaluaciones360/EvalRequestModal";
 import ViewerList          from "@/components/evaluaciones360/ViewerList";
+import MyReportsBanner     from "@/components/evaluaciones360/MyReportsBanner";
 import type { Evaluation360, EvalFormData } from "@/types/evaluaciones360";
 
 type View      = "list" | "create" | "edit" | "duplicate" | "participants" | "results" | "reports" | "take" | "change-requests" | "request";
@@ -207,10 +208,13 @@ export default function Evaluaciones360Page() {
                 onRefresh={fetchEvaluations}
               />
             ) : (
-              <ViewerList
-                evaluations={role === "viewer" ? evaluations : myEvaluations}
-                onTake={(e) => { setSelected(e); setView("take"); }}
-              />
+              <div className="space-y-5">
+                <MyReportsBanner userEmail={userEmail} />
+                <ViewerList
+                  evaluations={role === "viewer" ? evaluations : myEvaluations}
+                  onTake={(e) => { setSelected(e); setView("take"); }}
+                />
+              </div>
             )}
           </>
         )}

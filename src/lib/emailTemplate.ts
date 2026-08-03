@@ -15,13 +15,27 @@ export interface EmailTemplateContext {
   showFallbackLink?: boolean;
 }
 
+// Variable que el admin puede escribir a mano en cualquier campo de la
+// plantilla (asunto, cuerpo, botón, pie) — se reemplaza por el nombre de
+// pila real del destinatario justo antes de enviar. Sin esto, un admin que
+// escribía "Hola, [Nombre]" en el editor recibía el correo con el texto
+// literal "[Nombre]", porque la interpolación de nombre solo pasaba en el
+// texto por defecto (ctx.recipientName), nunca en un cuerpo editado a mano.
+// Case-insensitive para no exigir que se escriba exactamente "[Nombre]".
+function applyPlaceholders(text: string, ctx: EmailTemplateContext): string {
+  const firstName = ctx.recipientName.trim().split(/\s+/)[0] || ctx.recipientName;
+  return text
+    .replace(/\[nombre completo\]/gi, ctx.recipientName)
+    .replace(/\[nombre\]/gi, firstName);
+}
+
 export function resolveSubject(cfg: EmailTemplateConfig, ctx: EmailTemplateContext): string {
-  return (
+  const subject =
     cfg.subject?.trim() ||
     (ctx.isReminder
       ? `Recordatorio: ${ctx.surveyTitle} — aún puedes responder`
-      : `Invitación: ${ctx.surveyTitle}`)
-  );
+      : `Invitación: ${ctx.surveyTitle}`);
+  return applyPlaceholders(subject, ctx);
 }
 
 export function buildEmailHtml(cfg: EmailTemplateConfig, ctx: EmailTemplateContext): string {
@@ -38,10 +52,10 @@ export function buildEmailHtml(cfg: EmailTemplateConfig, ctx: EmailTemplateConte
         : "Te invitamos a participar en una encuesta de clima organizacional"}
     </p>`;
 
-  const bodyHtml   = cfg.body?.trim() || defaultBody;
-  const buttonText = cfg.buttonText?.trim() || (ctx.isReminder ? "Completar encuesta →" : "Comenzar encuesta →");
-  const footerHtml = cfg.footer?.trim() ||
-    'Este correo fue enviado por <strong style="color:#64748b;">People Alegra</strong>.<br/>Tus respuestas son confidenciales y se procesarán de forma agregada.';
+  const bodyHtml   = applyPlaceholders(cfg.body?.trim() || defaultBody, ctx);
+  const buttonText = applyPlaceholders(cfg.buttonText?.trim() || (ctx.isReminder ? "Completar encuesta →" : "Comenzar encuesta →"), ctx);
+  const footerHtml = applyPlaceholders(cfg.footer?.trim() ||
+    'Este correo fue enviado por <strong style="color:#64748b;">People Alegra</strong>.<br/>Tus respuestas son confidenciales y se procesarán de forma agregada.', ctx);
 
   return `<!DOCTYPE html>
 <html lang="es">

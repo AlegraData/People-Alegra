@@ -113,9 +113,18 @@ export default function EmailTemplateEditor({
 
           {/* Cuerpo */}
           <div>
-            <label className="block text-xs font-bold uppercase text-[#64748b] mb-1.5">
-              Contenido del mensaje
-            </label>
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <label className="block text-xs font-bold uppercase text-[#64748b]">
+                Contenido del mensaje
+              </label>
+              <button
+                type="button"
+                onClick={() => onChange({ ...value, body: `${value.body ?? ""} [Nombre]` })}
+                className="text-[10px] font-bold text-primary hover:underline shrink-0"
+              >
+                + Insertar [Nombre]
+              </button>
+            </div>
             <RichTextEditor
               value={value.body ?? ""}
               onChange={(v) => onChange({ ...value, body: v })}
@@ -127,7 +136,9 @@ export default function EmailTemplateEditor({
               minHeight={120}
             />
             <p className="text-[10px] text-[#94a3b8] mt-1.5">
-              La tarjeta con el nombre de la encuesta y el botón de acción se añaden automáticamente.
+              Escribe <strong>[Nombre]</strong> en cualquier parte (asunto, mensaje, botón o pie) y se reemplaza
+              por el nombre de pila real de cada destinatario al enviar (<strong>[Nombre completo]</strong> para
+              el nombre completo). La tarjeta con el nombre de la encuesta y el botón de acción se añaden automáticamente.
             </p>
           </div>
 

@@ -1,22 +1,24 @@
 "use client";
 import { useState } from "react";
-import { ArrowLeft, BarChart3, Settings2, Palette } from "lucide-react";
+import { ArrowLeft, BarChart3, Settings2, Palette, Send } from "lucide-react";
 import type { Evaluation360, CustomReportSection } from "@/types/evaluaciones360";
 import EvalReportsSummary from "./EvalReportsSummary";
 import EvalReportSectionsConfig from "./EvalReportSectionsConfig";
 import EvalReportTemplateEditor from "./EvalReportTemplateEditor";
+import EvalReportSends from "./EvalReportSends";
 
 interface Props {
   evaluation: Evaluation360;
   onBack: () => void;
 }
 
-type Tab = "resumen" | "configuracion" | "plantilla";
+type Tab = "resumen" | "configuracion" | "plantilla" | "envios";
 
 const TABS: { id: Tab; label: string; icon: typeof BarChart3 }[] = [
   { id: "resumen", label: "Resumen", icon: BarChart3 },
   { id: "configuracion", label: "Configuración", icon: Settings2 },
   { id: "plantilla", label: "Plantilla", icon: Palette },
+  { id: "envios", label: "Envíos", icon: Send },
 ];
 
 export default function EvalReports({ evaluation: initialEvaluation, onBack }: Props) {
@@ -61,6 +63,7 @@ export default function EvalReports({ evaluation: initialEvaluation, onBack }: P
         />
       )}
       {tab === "plantilla" && <EvalReportTemplateEditor evaluation={evaluation} />}
+      {tab === "envios" && <EvalReportSends evaluation={evaluation} />}
     </div>
   );
 }

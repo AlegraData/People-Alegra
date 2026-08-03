@@ -143,12 +143,29 @@ export interface Evaluation360 {
   emailBody?: string | null;
   emailButtonText?: string | null;
   emailFooter?: string | null;
+  /** Plantilla del correo de envío de reportes (tab "Envíos") — separada de
+   *  la de invitación/recordatorio de arriba, mismo criterio de columnas. */
+  reportEmailSubject?: string | null;
+  reportEmailBody?: string | null;
+  reportEmailButtonText?: string | null;
+  reportEmailFooter?: string | null;
   createdAt: string;
   updatedAt: string;
   assignmentsCount: number;
   submittedCount: number;
   pendingChangeRequestsCount?: number;
   myAssignments?: Evaluation360Assignment[];
+}
+
+/** Estado de envío del reporte PDF de un evaluado (tab "Envíos") — un
+ *  registro por (encuesta, evaluado), fuente de verdad para no reenviar sin
+ *  querer y para que el evaluado vea su reporte disponible. */
+export interface Evaluation360ReportSend {
+  evaluateeEmail: string;
+  evaluateeName?: string | null;
+  status: "pending" | "generated" | "sent" | "failed";
+  sentAt?: string | null;
+  error?: string | null;
 }
 
 export interface EvaluationChangeRequest {

@@ -214,6 +214,10 @@ model Evaluation360 {
   emailBody            String?  @map("email_body")
   emailButtonText      String?  @map("email_button_text")
   emailFooter          String?  @map("email_footer")
+  reportEmailSubject    String?  @map("report_email_subject")
+  reportEmailBody       String?  @map("report_email_body")
+  reportEmailButtonText String?  @map("report_email_button_text")
+  reportEmailFooter     String?  @map("report_email_footer")
   createdAt            DateTime @default(now()) @map("created_at")
   updatedAt            DateTime @updatedAt       @map("updated_at")
 
