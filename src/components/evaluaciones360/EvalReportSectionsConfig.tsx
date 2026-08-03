@@ -456,7 +456,13 @@ export default function EvalReportSectionsConfig({ evaluation, onSaved }: Props)
                       {POSITION_LABELS[section.position ?? "end"]}
                     </span>
                   </div>
-                  {section.description && <p className="text-xs text-[#64748b] mt-1">{section.description}</p>}
+                  {section.description && (
+                    // dangerouslySetInnerHTML: la descripción puede traer formato
+                    // enriquecido (color por palabra) guardado desde "Editar en
+                    // vivo" en Reportes → Plantilla — con texto JSX plano se verían
+                    // las etiquetas HTML literales en vez del texto con formato.
+                    <p className="text-xs text-[#64748b] mt-1" dangerouslySetInnerHTML={{ __html: section.description }} />
+                  )}
                   <div className="flex flex-wrap gap-1.5 mt-2.5">
                     {section.entries.map((e) => (
                       <span key={e.questionId} className="text-[10px] font-semibold bg-slate-50 text-[#64748b] px-2 py-1 rounded-lg border border-slate-100">

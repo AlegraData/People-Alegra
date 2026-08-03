@@ -41,6 +41,7 @@ export interface ReportComment {
 
 /** Una sección de análisis personalizada (ej. "Alineación Cultural"), ya calculada, lista para renderizar. */
 export interface CustomSectionResult {
+  id: string;
   name: string;
   description?: string;
   rows: CategoryComparisonRow[];
@@ -246,6 +247,32 @@ function logoBlock(theme: Theme, logoDataUri: string | null | undefined, size: n
 // página (grid 2x2), igual que en la plantilla de referencia. `blockScale`
 // combina la densidad global con el tamaño de letra propio del bloque
 // "Comparativos" — escala tanto el gráfico como sus etiquetas.
+// Parte el nombre de una categoría en hasta 2 líneas por palabra completa
+// (nunca a mitad de palabra) para que quepa bajo su grupo de barras sin
+// recortarse — antes se truncaba con "…" a los 14 caracteres, perdiendo
+// nombres completos como "Trabajo en equipo". Si ni siquiera 2 líneas
+// alcanzan (una sola palabra larguísima), esa 2da línea sí trunca.
+function wrapCategoryLabel(text: string, maxLineLen: number): string[] {
+  const words = text.split(" ");
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (current && candidate.length > maxLineLen) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) lines.push(current);
+  if (lines.length > 2) {
+    const rest = lines.slice(1).join(" ");
+    lines.splice(1, lines.length - 1, rest.length > maxLineLen ? `${rest.slice(0, maxLineLen - 1)}…` : rest);
+  }
+  return lines;
+}
+
 function groupedBarChart(theme: Theme, blockScale: number, rows: CategoryComparisonRow[], max: number, mineLabel: string, benchLabel: string, mineLabelPath: string, benchLabelPath: string, noDataMessage: string): string {
   if (rows.length === 0) {
     return `<div ${editAttrs("comparativos.noDataMessage", noDataMessage)} style="color:${SLATE_LIGHT};font-size:11px;text-align:center;padding:16px 0;">${noDataMessage}</div>`;
@@ -264,18 +291,30 @@ function groupedBarChart(theme: Theme, blockScale: number, rows: CategoryCompari
   const scale = (v: number) => (max > 0 ? Math.min((v / max) * barMaxH, barMaxH) : 0);
   const valueFontSize = Math.round(10 * blockScale);
   const labelFontSize = Math.round(9 * blockScale);
+  const labelLineHeight = labelFontSize + 3;
+  // Ancho disponible por etiqueta: su propio grupo más buena parte del hueco
+  // hacia el siguiente (los nombres se centran, así que invaden ese espacio
+  // sin pisar al vecino) — convertido a caracteres con un ancho promedio de
+  // fuente típico (~0.55 × tamaño de letra para una sans-serif normal).
+  const maxLineLen = Math.max(6, Math.floor((groupW + groupGap * 0.85) / (labelFontSize * 0.55)));
+  const labelLines = rows.map((r) => wrapCategoryLabel(r.category, maxLineLen));
+  const maxLines = Math.max(1, ...labelLines.map((l) => l.length));
+  const chartBottomPad = 28 + (maxLines - 1) * labelLineHeight;
 
   const bars = rows.map((r, i) => {
     const x0 = groupGap + i * (groupW + groupGap);
+    const cx = x0 + groupW / 2;
     const hMine = scale(r.mine);
     const hBench = scale(r.benchmark);
+    const lines = labelLines[i];
+    const labelTspans = lines.map((line, li) => `<tspan x="${cx}" dy="${li === 0 ? 0 : labelLineHeight}">${esc(line)}</tspan>`).join("");
     return `
       <g>
         <rect x="${x0}" y="${chartH - hMine}" width="${barW}" height="${hMine}" rx="3" fill="${theme.primary}"></rect>
         <text x="${x0 + barW / 2}" y="${chartH - hMine - 5}" font-size="${valueFontSize}" font-weight="700" fill="${theme.text}" text-anchor="middle">${fmt(r.mine)}</text>
         <rect x="${x0 + barW + 5}" y="${chartH - hBench}" width="${barW}" height="${hBench}" rx="3" fill="${GRAY}"></rect>
         <text x="${x0 + barW + 5 + barW / 2}" y="${chartH - hBench - 5}" font-size="${valueFontSize}" font-weight="700" fill="${theme.textSecondary}" text-anchor="middle">${fmt(r.benchmark)}</text>
-        <text x="${x0 + groupW / 2}" y="${chartH + 16}" font-size="${labelFontSize}" fill="${theme.textSecondary}" text-anchor="middle">${esc(r.category.length > 14 ? r.category.slice(0, 12) + "…" : r.category)}</text>
+        <text x="${cx}" y="${chartH + 16}" font-size="${labelFontSize}" fill="${theme.textSecondary}" text-anchor="middle">${labelTspans}</text>
       </g>`;
   }).join("");
 
@@ -284,7 +323,7 @@ function groupedBarChart(theme: Theme, blockScale: number, rows: CategoryCompari
       <span style="display:inline-flex;align-items:center;gap:4px;font-size:9px;color:${theme.textSecondary};"><span style="width:8px;height:8px;border-radius:2px;background:${theme.primary};display:inline-block;"></span><div ${editAttrs(mineLabelPath, mineLabel)} style="display:inline-block;">${mineLabel}</div></span>
       <span style="display:inline-flex;align-items:center;gap:4px;font-size:9px;color:${theme.textSecondary};"><span style="width:8px;height:8px;border-radius:2px;background:${GRAY};display:inline-block;"></span><div ${editAttrs(benchLabelPath, benchLabel)} style="display:inline-block;">${benchLabel}</div></span>
     </div>
-    <svg width="100%" height="${chartH + 28}" viewBox="0 0 ${width} ${chartH + 28}" xmlns="http://www.w3.org/2000/svg">${bars}</svg>`;
+    <svg width="100%" height="${chartH + chartBottomPad}" viewBox="0 0 ${width} ${chartH + chartBottomPad}" xmlns="http://www.w3.org/2000/svg">${bars}</svg>`;
 }
 
 // ── Ranking completo de comportamientos (filas HTML, no SVG) ────────────────
@@ -295,7 +334,11 @@ function groupedBarChart(theme: Theme, blockScale: number, rows: CategoryCompari
 function horizontalRankingChart(theme: Theme, blockScale: number, rows: QuestionRankingRow[], max: number, mineLabel: string, benchLabel: string, mineLabelPath: string, benchLabelPath: string): string {
   if (rows.length === 0) return "";
   const pct = (v: number) => (max > 0 ? Math.min((v / max) * 100, 100) : 0);
-  const fontSize = Math.round(10 * blockScale);
+  // Un poco más grande que el resto de gráficas (10 → 11.5): esta es la
+  // única sección donde el "dato" (nombre del comportamiento + puntaje) es
+  // en sí mismo el contenido principal a leer, no una etiqueta secundaria
+  // junto a una barra corta.
+  const fontSize = Math.round(11.5 * blockScale);
 
   const barRows = rows.map((r) => `
     <div style="display:flex;align-items:center;gap:10px;padding:4px 0;break-inside:avoid;">
@@ -359,10 +402,16 @@ function badgedCardTitle(iconUri: string | null | undefined, fallbackEmoji: stri
 }
 
 // Cada comentario individual evita partirse a la mitad (break-inside:avoid en
-// el <p>), pero la tarjeta contenedora NO lo lleva: si se fuerza a que la
-// tarjeta completa (que puede tener decenas de comentarios) no se parta,
-// Chromium la empuja entera a la siguiente página y deja un hueco en blanco
-// en la actual — el mismo bug que ya se corrigió en el gráfico de ranking.
+// el <p>), y la tarjeta contenedora explícitamente NO lo lleva (se anula el
+// break-inside:avoid que trae por defecto la clase compartida ".card" — sin
+// este override, una tarjeta con decenas de comentarios queda igual de
+// "atómica" y Chromium la empuja ENTERA a la siguiente página, dejando un
+// hueco en blanco en la actual, el mismo bug que ya se corrigió en el
+// gráfico de ranking). `orphans`/`widows` en cada cita evita que, en el caso
+// límite de una respuesta tan larga que ni siquiera cabe entera en una hoja
+// nueva (rompe su propio break-inside:avoid), quede una sola línea suelta
+// pegada arriba o abajo del corte — se ve como un párrafo que sigue,
+// no como un corte a mitad de frase.
 // Cada tarjeta lleva su propio título "Comentarios" centrado (igual que el
 // PDF de referencia) — no hay un título de sección aparte para todo el bloque.
 function commentSection(theme: Theme, blockScale: number, cardTitle: string, questionIntroTemplate: string, c: ReportComment): string {
@@ -372,11 +421,11 @@ function commentSection(theme: Theme, blockScale: number, cardTitle: string, que
   const textSize = (10.5 * blockScale).toFixed(1);
   const questionIntro = renderWithBoldRaw(questionIntroTemplate, "pregunta", c.questionText);
   return `
-    <div class="card" style="margin-bottom:14px;">
+    <div class="card" style="margin-bottom:14px;break-inside:auto;">
       <div ${editAttrs("comentarios.cardTitle", cardTitle)} style="font-weight:800;font-size:${titleSize}px;color:${theme.text};text-align:center;margin:0 0 6px;">${cardTitle}</div>
       <div ${editAttrs("comentarios.questionIntro", questionIntroTemplate, renderWithBoldRaw(questionIntroTemplate, "pregunta", c.questionText))} style="font-size:${descSize}px;color:${theme.textSecondary};text-align:center;margin:0 0 10px;">${questionIntro}</div>
       <div style="display:flex;flex-direction:column;gap:7px;">
-        ${c.answers.map((a) => `<p style="background:#f8fafc;border-radius:10px;padding:10px 13px;font-size:${textSize}px;color:${theme.textSecondary};font-style:italic;line-height:1.45;margin:0;break-inside:avoid;">&ldquo;${esc(a)}&rdquo;</p>`).join("")}
+        ${c.answers.map((a) => `<p style="background:#f8fafc;border-radius:10px;padding:10px 13px;font-size:${textSize}px;color:${theme.textSecondary};font-style:italic;line-height:1.45;margin:0;break-inside:avoid;orphans:3;widows:3;">&ldquo;${esc(a)}&rdquo;</p>`).join("")}
       </div>
     </div>`;
 }
@@ -397,6 +446,34 @@ export function buildReportHtml(data: Eval360ReportData): string {
   const rankingScale = theme.scale * config.blocks.ranking.fontScale;
   const comentariosScale = theme.scale * config.blocks.comentarios.fontScale;
   const competenciasScale = theme.scale * config.blocks.competencias.fontScale;
+
+  // El espacio ANTES de un título (margin-top) es 0 en dos casos — en ambos,
+  // el bloque va a arrancar siempre pegado al borde físico de una hoja, así
+  // que sumarle además su propio "espacio sobre el título" configurado
+  // termina apilando ESE valor sobre el margen de página (pageMarginY, ~22px
+  // en cada hoja) y se ve desproporcionado frente a un bloque que no arranca
+  // hoja nueva (confirmado midiendo un PDF real: con el mismo "30" en dos
+  // bloques, uno cae a 52px del borde físico —22 de margen + 30 propios— y
+  // el otro a exactamente 30, porque no hay ninguna hoja empezando ahí):
+  // 1. Es el primer bloque del documento (pegado al encabezado).
+  // 2. Es el bloque que queda justo después de uno con `break-after:page`
+  //    (ver FORCED_BREAK_AFTER más abajo) — SIEMPRE arranca una hoja nueva,
+  //    sea cual sea el orden actual.
+  const firstBlockId = config.blocks.order[0];
+  // Bloques que fuerzan salto de hoja después de sí mismos (ver las reglas
+  // CSS [data-edit-block="..."] { break-after: page; } más abajo) — hoy
+  // "comparativos" (para no mezclar el comparativo con Comportamientos) y
+  // "ranking" (para que Comentarios siempre arranque en una hoja propia, sin
+  // quedar apretado contra "Resultados individuales por comportamiento").
+  const FORCED_BREAK_AFTER: ReportBlockId[] = ["comparativos", "ranking"];
+  const blocksAfterForcedBreak = new Set(
+    FORCED_BREAK_AFTER.map((id) => {
+      const idx = config.blocks.order.indexOf(id);
+      return idx !== -1 ? config.blocks.order[idx + 1] : undefined;
+    }).filter((id): id is ReportBlockId => id !== undefined)
+  );
+  const titleMarginTop = (blockId: ReportBlockId, gapBefore: number) =>
+    blockId === firstBlockId || blocksAfterForcedBreak.has(blockId) ? 0 : gapBefore;
 
   // Tarjetas del comparativo: las 3 fijas en el orden configurado, más cada
   // sección personalizada insertada justo después de su ancla (o al final).
@@ -434,8 +511,17 @@ export function buildReportHtml(data: Eval360ReportData): string {
     const usingDefaultDesc = section.description === undefined;
     const desc = section.description ?? copy.comparativos.customDefaultDesc;
     return {
+      // El título sigue fijo/no editable en línea (nunca HTML): es el mismo
+      // dato crudo de la encuesta (`section.name`) que ya se corrigió tras el
+      // bug de "Análisis de Análisis de..." — mezclarle formato enriquecido
+      // reabriría ese riesgo. La descripción, en cambio, sí es editable con
+      // color por palabra desde "Editar en vivo" cuando la sección tiene su
+      // propio texto (no el default compartido): se guarda aparte de
+      // `config.copy`, en `evaluation.reportSections` (ver
+      // `section.<id>.description` en EvalReportTemplateEditor.tsx), porque
+      // es dato por encuesta, no de la plantilla global.
       title: `Análisis de ${section.name}`, titlePath: "",
-      desc, descRaw: desc, descPath: usingDefaultDesc ? "comparativos.customDefaultDesc" : "",
+      desc, descRaw: desc, descPath: usingDefaultDesc ? "comparativos.customDefaultDesc" : `section.${section.id}.description`,
       chart: groupedBarChart(theme, comparativosScale, section.rows, data.ratingMax, copy.comparativos.customMineLabel, copy.comparativos.customBenchLabel, "comparativos.customMineLabel", "comparativos.customBenchLabel", copy.comparativos.noDataMessage),
     };
   };
@@ -450,21 +536,21 @@ export function buildReportHtml(data: Eval360ReportData): string {
   // según `config.blocks.order`.
   const blockHtml: Record<ReportBlockId, string> = {
     competencias: `
-      <div class="section-title" ${editAttrs("competencias.title", copy.competencias.title)}>${copy.competencias.title}</div>
+      <div class="section-title" style="margin-top:${titleMarginTop("competencias", config.blocks.competencias.titleGapBefore)}px;margin-bottom:${config.blocks.competencias.titleGap}px" ${editAttrs("competencias.title", copy.competencias.title)}>${copy.competencias.title}</div>
       <div class="grid">${competencyCards(theme, competenciasScale, config.blocks.competencias.iconSize, categories, icons, config.blocks.competencias.categoryIcons, copy.competencias.categoryDescriptions)}</div>`,
     comparativos: `
-      <div class="section-title" ${editAttrs("comparativos.title", copy.comparativos.title)}>${copy.comparativos.title}</div>
+      <div class="section-title" style="margin-top:${titleMarginTop("comparativos", config.blocks.comparativos.titleGapBefore)}px;margin-bottom:${config.blocks.comparativos.titleGap}px" ${editAttrs("comparativos.title", copy.comparativos.title)}>${copy.comparativos.title}</div>
       <div class="grid-2">
         ${comparisonCards.map((c) => `
           <div class="card">
-            <div ${c.titlePath ? editAttrs(c.titlePath, c.title) : ""} style="font-weight:700;font-size:12px;margin:0 0 3px;">${c.titlePath ? c.title : esc(c.title)}</div>
-            <div ${c.descPath ? editAttrs(c.descPath, c.descRaw, c.desc) : ""} style="font-size:10px;color:${theme.textSecondary};margin:0 0 8px;">${c.descPath ? c.desc : esc(c.desc)}</div>
+            <div ${c.titlePath ? editAttrs(c.titlePath, c.title) : ""} style="font-weight:700;font-size:12px;margin:0 0 6px;">${c.titlePath ? c.title : esc(c.title)}</div>
+            <div ${c.descPath ? editAttrs(c.descPath, c.descRaw, c.desc) : ""} style="font-size:10px;color:${theme.textSecondary};margin:5px 0 12px;">${c.descPath ? c.desc : esc(c.desc)}</div>
             ${c.chart}
           </div>`).join("")}
       </div>`,
     comportamientos: `
-      <div class="section-title" ${editAttrs("comportamientos.title", copy.comportamientos.title)}>${copy.comportamientos.title}</div>
-      <div ${editAttrs("comportamientos.description", copy.comportamientos.description, interpolateRaw(copy.comportamientos.description, { total: String(data.totalReceived) }))} style="font-size:10px;color:${theme.textSecondary};text-align:center;max-width:620px;margin:0 auto 10px;">
+      <div class="section-title" style="margin-top:${titleMarginTop("comportamientos", config.blocks.comportamientos.titleGapBefore)}px;margin-bottom:8px" ${editAttrs("comportamientos.title", copy.comportamientos.title)}>${copy.comportamientos.title}</div>
+      <div ${editAttrs("comportamientos.description", copy.comportamientos.description, interpolateRaw(copy.comportamientos.description, { total: String(data.totalReceived) }))} style="font-size:10px;color:${theme.textSecondary};text-align:center;margin:0 0 ${config.blocks.comportamientos.titleGap}px;">
         ${interpolateRaw(copy.comportamientos.description, { total: String(data.totalReceived) })}
       </div>
       <div class="grid">
@@ -478,7 +564,7 @@ export function buildReportHtml(data: Eval360ReportData): string {
         </div>
       </div>`,
     ranking: `
-      <div class="section-title" ${editAttrs("ranking.title", copy.ranking.title)}>${copy.ranking.title}</div>
+      <div class="section-title" style="margin-top:${titleMarginTop("ranking", config.blocks.ranking.titleGapBefore)}px;margin-bottom:${config.blocks.ranking.titleGap}px" ${editAttrs("ranking.title", copy.ranking.title)}>${copy.ranking.title}</div>
       <div class="card">
         <div ${editAttrs("ranking.description", copy.ranking.description)} style="font-size:10px;color:${theme.textSecondary};margin:0 0 8px;">${copy.ranking.description}</div>
         ${horizontalRankingChart(theme, rankingScale, data.questionRanking, data.ratingMax, copy.ranking.mineLabel, copy.ranking.benchLabel, "ranking.mineLabel", "ranking.benchLabel")}
@@ -529,6 +615,16 @@ export function buildReportHtml(data: Eval360ReportData): string {
      manuales — sin esto, un "\n" en el texto se colapsa a un espacio como
      cualquier otro whitespace normal de HTML. */
   [data-edit-copy] { white-space: pre-wrap; }
+  /* Tiptap envuelve el texto en un <p> apenas el admin edita un campo (antes
+     era texto plano, sin ninguna etiqueta) — y ese <p> trae su propio margen
+     por defecto del navegador (~1em), invisible y completamente aparte del
+     margen que se configura en el DIV que lo contiene (ej. "Espacio bajo el
+     título"). Sin este reset, cualquier campo editado quedaba con espacio
+     extra que ningún control del panel podía tocar ni explicar. */
+  [data-edit-copy] p, [data-edit-textbox] p,
+  [data-edit-copy] ul, [data-edit-textbox] ul,
+  [data-edit-copy] ol, [data-edit-textbox] ol,
+  [data-edit-copy] blockquote, [data-edit-textbox] blockquote { margin: 0; }
   .grid { display:flex; gap:10px; flex-wrap:wrap; }
   .grid > .card { flex:1; min-width:220px; }
   /* Comparativo de tus resultados: siempre 2 columnas (2x2 con las 4
@@ -539,8 +635,11 @@ export function buildReportHtml(data: Eval360ReportData): string {
   .grid-2 { display:grid; grid-template-columns: repeat(2, 1fr); gap:10px; }
   /* break-after: page solo tiene efecto en el PDF real (Puppeteer) — en la
      vista en vivo (documento continuo) un navegador normal lo ignora fuera
-     de impresión, así que este bloque simplemente sigue en el mismo flujo. */
-  [data-edit-block="comparativos"] { break-after: page; }
+     de impresión, así que este bloque simplemente sigue en el mismo flujo.
+     "ranking" también lo lleva para que "Comentarios" siempre arranque en su
+     propia hoja, en vez de quedar apretado justo debajo de "Resultados
+     individuales por comportamiento" (ver FORCED_BREAK_AFTER arriba). */
+  [data-edit-block="comparativos"], [data-edit-block="ranking"] { break-after: page; }
 </style>
 </head>
 <body>
@@ -579,10 +678,24 @@ export function buildReportHtml(data: Eval360ReportData): string {
     ${config.customTextBoxes.map((box) => `
       <div data-edit-textbox="${box.id}" style="position:absolute;left:${box.x}px;top:${box.y}px;width:${box.width}px;color:${esc(box.color)};font-size:${box.fontSize}px;overflow-wrap:anywhere;break-inside:avoid;z-index:50;">${box.text}</div>`).join("")}
 
-    <div style="text-align:center;margin-top:18px;padding:16px 0;">
+    <!-- Espaciador invisible: generatePdf.ts mide, ANTES de exportar el PDF
+         real, cuánto queda de la última hoja hasta ahora y le fija a este div
+         el alto exacto para que el footer quede pegado al margen inferior
+         físico de esa hoja — sea cual sea el largo de los comentarios que
+         terminen justo antes. En la vista en vivo (sin ese paso de medición)
+         simplemente no ocupa espacio, el footer sigue quedando justo debajo. -->
+    <div data-footer-spacer style="height:0px;"></div>
+    <!-- break-inside:avoid: el footer completo (texto + logo) salta entero a
+         una hoja nueva si no alcanza a caber en lo que quede de la actual —
+         nunca se parte a la mitad dejando el logo o una línea cortada. -->
+    <div data-report-footer style="text-align:center;margin-top:18px;padding:16px 0;break-inside:avoid;">
       <div ${editAttrs("footer.line1", copy.footer.line1)} style="font-size:11px;font-weight:700;color:${theme.text};margin:0 0 3px;">${copy.footer.line1}</div>
       <div ${editAttrs("footer.line2", copy.footer.line2)} style="font-size:11px;font-weight:700;color:${theme.text};margin:0 0 12px;">${copy.footer.line2}</div>
-      <div style="display:flex;justify-content:${justify};">${logoBlock(theme, icons.logo, Math.round(theme.logoSize * 0.875))}</div>
+      <!-- Siempre centrado, sin importar cómo esté alineado el logo del
+           encabezado (config.logo.align) — es un cierre del reporte, no una
+           repetición del branding superior, así que no debería depender de
+           esa configuración. -->
+      <div style="display:flex;justify-content:center;">${logoBlock(theme, icons.logo, Math.round(theme.logoSize * 0.875))}</div>
     </div>
 
   </div>

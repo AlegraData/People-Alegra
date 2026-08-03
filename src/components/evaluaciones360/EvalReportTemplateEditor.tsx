@@ -6,7 +6,7 @@ import {
   Bold as BoldIcon, Italic as ItalicIcon, Underline as UnderlineIcon, Strikethrough, List, ListOrdered, Quote,
   IndentIncrease, IndentDecrease, Link2, X, Palette, Highlighter, RemoveFormatting,
 } from "lucide-react";
-import type { Evaluation360 } from "@/types/evaluaciones360";
+import type { Evaluation360, CustomReportSection } from "@/types/evaluaciones360";
 import { normalizeQuestions } from "@/types/evaluaciones360";
 import type { ReportTemplateConfig, ReportTemplateDensity, CustomTextBox } from "@/lib/reportTemplateConfig";
 import type { ReportBlockId } from "@/lib/reportTemplateConfig";
@@ -424,6 +424,21 @@ function makeDeletable(target: HTMLElement, onDelete: () => void) {
   });
 }
 
+// Párrafos completamente vacíos al principio/final de un texto (ej. Enter
+// varias veces antes/después de un título, usado como truco para "agregar
+// espacio") se recortan al confirmar la edición. Tiptap/ProseMirror
+// serializa un párrafo vacío como `<p></p>` — pero ese mismo `<p></p>`, leído
+// por Tiptap al remontar la vista en vivo, no necesariamente mide igual que
+// el navegador normal que arma el PDF real (que nunca pasa por Tiptap, solo
+// interpreta el HTML crudo tal cual): la técnica de "líneas en blanco para
+// separar" nunca va a verse idéntica entre los dos paneles, así que ni
+// siquiera se guarda.
+function stripEmptyEdgeParagraphs(html: string): string {
+  const emptyP = /^\s*(<p>(\s|<br\s*\/?>)*<\/p>\s*)+/i;
+  const emptyPEnd = /(\s*<p>(\s|<br\s*\/?>)*<\/p>)+\s*$/i;
+  return html.replace(emptyP, "").replace(emptyPEnd, "");
+}
+
 export interface ActiveRichField {
   kind: "copy" | "textbox";
   key: string;
@@ -433,59 +448,123 @@ export interface ActiveRichField {
 
 // Todo texto editable del reporte (títulos, párrafos, etiquetas de gráficas,
 // cuadros de texto libre — nunca los datos ya renderizados: puntajes,
-// comentarios de la encuesta, nombres) se edita EN LÍNEA con Tiptap montado
-// directamente sobre el elemento — igual que un lienzo de Word, sin textarea
-// ni modal intermedio. La paleta de formato vive SIEMPRE VISIBLE arriba, en
-// el documento padre (ver Toolbar en el componente) — no un tooltip flotante
-// por campo — y se conecta con el campo que tenga el foco en cada momento vía
-// `onFieldActivate`. Se verificó con una prueba aislada en Playwright que
-// `editor.chain().focus()...run()` restaura foco Y selección correctamente
-// incluso cuando el clic que lo dispara ocurre en un botón de OTRO documento
-// (el padre, fuera del iframe).
+// comentarios de la encuesta, nombres) se edita en línea con Tiptap — pero
+// SOLO mientras se está editando activamente. En reposo, `el` (el elemento
+// real, tal cual lo armó el servidor) nunca se toca: ni se vacía, ni pasa
+// por el motor de Tiptap/ProseMirror. Antes el editor se montaba una sola
+// vez, apenas cargaba la página, y se quedaba viviendo ahí para siempre — lo
+// que significaba que TODO campo de texto, se editara o no, quedaba
+// re-armado por ProseMirror en vez de mostrarse tal cual vino del servidor.
+// Se detectaron dos casos reales donde ese re-armado terminaba midiendo
+// distinto que un navegador normal leyendo el mismo HTML sin pasar por
+// Tiptap (que es exactamente lo que hace el PDF real): párrafos vacíos como
+// truco de espaciado, y un `<span style="font-size:...">` con
+// `text-align:justify` adentro. Cualquier otro caso similar que apareciera
+// después iba a tener el mismo problema — por eso se cambió el mecanismo de
+// raíz en vez de seguir parchando caso por caso.
+// Al hacer clic, se monta Tiptap sobre un CLON hermano (mismas clases/estilo
+// que `el`, para no alterar el layout mientras se edita) y `el` se oculta;
+// al perder el foco, el clon se destruye y `el` reaparece — con su HTML
+// crudo de siempre si no hubo cambios, o esperando el próximo commit/recarga
+// si sí los hubo. El costo: el cursor no cae exactamente donde se hizo clic
+// (arranca al final del texto) — antes sí, porque el campo ya era un editor
+// activo todo el tiempo.
 function mountRichEditor(
   el: HTMLElement,
   kind: "copy" | "textbox",
   key: string,
   onCommit: (html: string) => void,
   onFieldActivate: (field: ActiveRichField) => void,
-  forceToolbarUpdate: () => void
+  forceToolbarUpdate: () => void,
+  onFieldDeactivate: (kind: "copy" | "textbox", key: string) => void,
+  shouldSkipBlur: () => boolean
 ) {
-  // Para "copy", el editor debe partir de `data-raw` (la plantilla SIN
-  // interpolar, con sus {{placeholders}} intactos) — NUNCA de `el.innerHTML`,
-  // que es el valor YA resuelto para el evaluado que se está previsualizando
-  // en este momento. Antes se usaba innerHTML acá: el admin editaba, por
-  // ejemplo, el saludo mientras previsualizaba a "María" y Tiptap arrancaba
-  // de "¡Hola, María!" en vez de "¡Hola, {{nombre}}!" — al confirmar (blur),
-  // eso quedaba guardado literal, matando el placeholder para siempre: el
-  // reporte de cualquier otra persona pasaba a saludar también "María".
-  // "textbox" no tiene interpolación (no hay data-raw), así que sigue usando
-  // el contenido real del DOM.
-  const initialHtml = kind === "copy" ? (el.getAttribute("data-raw") ?? el.innerHTML) : el.innerHTML;
-  // Tiptap usa `element` como CONTENEDOR donde agrega su propio div editable
-  // (.tiptap.ProseMirror) — no reemplaza lo que ya hubiera adentro. Sin este
-  // vaciado, el texto original se quedaba como un nodo de texto suelto al
-  // lado del editor real, duplicando visualmente el contenido y — más grave —
-  // interceptando el clic (por delante del div editable en el DOM), así que
-  // nunca llegaba a enfocar el editor de verdad.
-  el.innerHTML = "";
-  el.style.outline = "none";
   el.style.cursor = "text";
   el.style.minHeight = "1.3em";
-  const editor = new Editor({
-    element: el,
-    extensions: RICH_EXTENSIONS,
-    content: initialHtml,
-    onFocus: () => {
-      onFieldActivate({ kind, key, editor, initialHtml });
-      forceToolbarUpdate();
-    },
-    onBlur: () => {
-      const html = editor.getHTML();
-      if (html !== initialHtml) onCommit(html);
-    },
-    onSelectionUpdate: () => forceToolbarUpdate(),
-    onTransaction: () => forceToolbarUpdate(),
-  });
+
+  function onMouseDown(e: MouseEvent) {
+    e.preventDefault();
+    el.removeEventListener("mousedown", onMouseDown);
+    activate();
+  }
+
+  function activate() {
+    // Recién ahora, al entrar a editar — nunca antes — se lee `data-raw` (la
+    // plantilla SIN interpolar, con sus {{placeholders}} intactos): si el
+    // admin editaba, por ejemplo, el saludo mientras previsualizaba a
+    // "María", partir del valor YA resuelto ("¡Hola, María!") guardaba eso
+    // literal, matando el placeholder para siempre — el reporte de
+    // cualquier otra persona pasaba a saludar también "María". "textbox" no
+    // tiene interpolación (no hay data-raw), así que ahí es igual al HTML real.
+    const rawHtml = kind === "copy" ? (el.getAttribute("data-raw") ?? el.innerHTML) : el.innerHTML;
+
+    const editableEl = el.cloneNode(false) as HTMLElement;
+    editableEl.removeAttribute("data-edit-copy");
+    editableEl.removeAttribute("data-edit-textbox");
+    editableEl.style.outline = "none";
+    editableEl.style.cursor = "text";
+    editableEl.style.minHeight = "1.3em";
+    el.style.display = "none";
+    el.parentElement?.insertBefore(editableEl, el);
+
+    const editor = new Editor({
+      element: editableEl,
+      extensions: RICH_EXTENSIONS,
+      content: rawHtml,
+      // NO se usa la opción `autofocus`: Tiptap la corre adentro de un
+      // `window.setTimeout(..., 0)` (ver mount() en @tiptap/core), es decir,
+      // en una tarea aparte — DESPUÉS de que termine el gesto de clic
+      // completo (mousedown→mouseup→click) que disparó `activate()`. El
+      // resultado: justo al terminar de hacer clic, nada quedaba realmente
+      // enfocado todavía, y la barra de herramientas nunca se activaba. Se
+      // llama `.commands.focus()` directo más abajo, sincrónico, en el mismo
+      // gesto.
+      onFocus: () => {
+        onFieldActivate({ kind, key, editor, initialHtml: rawHtml });
+        forceToolbarUpdate();
+      },
+      onBlur: () => {
+        // Un <select>/<input> de la barra de formato (Tamaño, Interlineado,
+        // color) necesita tomar foco de verdad para poder abrirse — eso
+        // dispara este blur igual que si el admin hubiera hecho clic afuera,
+        // aunque en realidad sigue "editando" (va a volver con
+        // `.chain().focus()...run()` en cuanto aplique el cambio). No
+        // destruir nada en ese caso: se sigue mostrando el mismo editor tal
+        // cual, a la espera de que la barra lo vuelva a enfocar.
+        if (shouldSkipBlur()) return;
+        const html = stripEmptyEdgeParagraphs(editor.getHTML());
+        const changed = html !== rawHtml;
+        editor.destroy();
+        editableEl.remove();
+        if (changed) {
+          // `el` es lo único visible en reposo — sin esto, quedaba mostrando
+          // el contenido VIEJO (de antes del cambio) hasta la próxima
+          // recarga completa del iframe, dando la impresión de que la
+          // edición "no se guardó" aunque sí había quedado aplicada en
+          // `config`. Para "copy" también se actualiza `data-raw`: si el
+          // admin vuelve a hacer clic en este mismo campo ANTES de que
+          // llegue una recarga, debe partir de este edición recién hecha,
+          // no de la original con la que cargó la página.
+          el.innerHTML = html;
+          if (kind === "copy") el.setAttribute("data-raw", html);
+        }
+        el.style.display = "";
+        el.addEventListener("mousedown", onMouseDown);
+        onFieldDeactivate(kind, key);
+        // Sin esto, la barra de formato (RichToolbar) seguía "viendo" el
+        // editor recién destruido hasta que algo MÁS disparara un re-render
+        // — cualquier botón que se tocara mientras tanto (ej. Interlineado)
+        // operaba sobre una instancia muerta y no hacía nada visible.
+        forceToolbarUpdate();
+        if (changed) onCommit(html);
+      },
+      onSelectionUpdate: () => forceToolbarUpdate(),
+      onTransaction: () => forceToolbarUpdate(),
+    });
+    editor.commands.focus("end");
+  }
+
+  el.addEventListener("mousedown", onMouseDown);
 }
 
 // Bloques `[data-edit-block]` presentes en el documento, en orden visual
@@ -592,10 +671,13 @@ function attachEditHandles(
   updateTextBox: (id: string, patch: Partial<CustomTextBox>) => void,
   removeTextBox: (id: string) => void,
   updateCopyByPath: (path: string, value: string) => void,
+  commitSectionField: (sectionId: string, field: "name" | "description", value: string) => void,
   onEditStart: () => void,
   onEditEnd: () => void,
   onFieldActivate: (field: ActiveRichField) => void,
-  forceToolbarUpdate: () => void
+  forceToolbarUpdate: () => void,
+  onFieldDeactivate: (kind: "copy" | "textbox", key: string) => void,
+  shouldSkipBlur: () => boolean
 ) {
   // Cada manija se instala en su propio try/catch: si UNA falla por algo
   // específico de estos datos (ej. un elemento inesperado), las demás —
@@ -673,7 +755,7 @@ function attachEditHandles(
       makeWidthResizable(boxEl, box.width, 60, 700, (width) => updateTextBox(id, { width }), onEditStart, onEditEnd);
       makeDeletable(boxEl, () => removeTextBox(id));
 
-      mountRichEditor(boxEl, "textbox", id, (html) => updateTextBox(id, { text: html }), onFieldActivate, forceToolbarUpdate);
+      mountRichEditor(boxEl, "textbox", id, (html) => updateTextBox(id, { text: html }), onFieldActivate, forceToolbarUpdate, onFieldDeactivate, shouldSkipBlur);
     });
   });
 
@@ -689,7 +771,14 @@ function attachEditHandles(
     safely("texto editable", () => {
       const path = el.getAttribute("data-edit-copy");
       if (!path) return;
-      mountRichEditor(el, "copy", path, (html) => updateCopyByPath(path, html), onFieldActivate, forceToolbarUpdate);
+      // "section.<id>.<campo>" es dato por encuesta (secciones personalizadas
+      // de análisis, ej. "Alineación Cultural"), no de la plantilla global —
+      // se guarda aparte, contra `report-sections`, no contra `config.copy`.
+      const sectionMatch = path.match(/^section\.([^.]+)\.(name|description)$/);
+      const onCommit = sectionMatch
+        ? (html: string) => commitSectionField(sectionMatch[1], sectionMatch[2] as "name" | "description", html)
+        : (html: string) => updateCopyByPath(path, html);
+      mountRichEditor(el, "copy", path, onCommit, onFieldActivate, forceToolbarUpdate, onFieldDeactivate, shouldSkipBlur);
     });
   });
 }
@@ -867,6 +956,13 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
   const [evaluatees, setEvaluatees] = useState<EvaluateeOption[]>([]);
   const [evaluateeEmail, setEvaluateeEmail] = useState("");
 
+  // Secciones personalizadas de análisis (ej. "Alineación Cultural") — dato
+  // por encuesta, no de la plantilla global (`config`), por eso viven en su
+  // propio estado en vez de `config.copy`. Editar la descripción de una en
+  // vivo (ver `commitSectionField`) guarda de inmediato contra el endpoint de
+  // `report-sections`, no contra "Guardar plantilla".
+  const [reportSections, setReportSections] = useState<CustomReportSection[]>(evaluation.reportSections);
+
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -931,6 +1027,30 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
   const [toolbarTick, setToolbarTick] = useState(0);
   const forceToolbarUpdate = useCallback(() => setToolbarTick((t) => t + 1), []);
   const onFieldActivate = useCallback((field: ActiveRichField) => { activeFieldRef.current = field; }, []);
+  // Tiptap ahora se destruye al perder el foco (ver mountRichEditor) — sin
+  // esto, `activeFieldRef` seguía apuntando al editor ya destruido para
+  // siempre (nunca se limpiaba), y `flushActiveField` podía intentar llamar
+  // `.getHTML()` sobre una instancia muerta. Solo limpia si el campo que se
+  // desactiva es efectivamente el que seguía activo (evita pisar un campo
+  // B recién activado si el blur de A, por lo que sea, corre después).
+  const onFieldDeactivate = useCallback((kind: "copy" | "textbox", key: string) => {
+    if (activeFieldRef.current?.kind === kind && activeFieldRef.current?.key === key) {
+      activeFieldRef.current = null;
+    }
+  }, []);
+  // true mientras el foco está en algún control de la barra de formato (ej.
+  // los <select> de "Tamaño"/"Interlineado", o el <input type=color>) — a
+  // diferencia de los botones (ToolBtn), que evitan tomar foco con
+  // preventDefault en mousedown, un <select>/<input> SÍ necesita el foco
+  // para poder abrirse — eso dispara un blur real sobre el editor de Tiptap
+  // dentro del iframe. Sin esto, ese blur lo destruía (ver mountRichEditor)
+  // antes de que el propio control alcanzara a aplicar el cambio con
+  // `editor.chain().focus()...run()` — la paleta quedaba deshabilitada justo
+  // al intentar usarla. Se limpia solo cuando el foco sale de la barra por
+  // completo (no al moverse de un control de la barra a otro).
+  const isToolbarInteractionRef = useRef(false);
+  const toolbarContainerRef = useRef<HTMLDivElement>(null);
+  const shouldSkipBlur = useCallback(() => isToolbarInteractionRef.current, []);
 
   // Categorías reales de esta encuesta (para el mapeo de íconos del bloque "Competencias")
   const categories = useMemo(() => {
@@ -1033,12 +1153,25 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
   // admin sigue escribiendo en OTRO campo si la recarga anterior (de un
   // cambio de color/margen, por ejemplo) todavía estaba en camino. Se
   // reserva la recarga real para cambios que Tiptap no puede reflejar por su
-  // cuenta: colores, márgenes, logo, tamaño de bloque/ícono, e íconos por
-  // categoría.
+  // cuenta: colores, márgenes, logo, tamaño de bloque/ícono, íconos por
+  // categoría, y los 4 campos con placeholder (ver stripCopyAndText).
+  // Los 4 campos de copy con placeholder ({{nombre}}, {{equipo}}, {{total}},
+  // {{pregunta}} — ver DEFAULT_TEMPLATE_CONFIG) son la excepción: a
+  // diferencia del resto del texto, si se editan SÍ hace falta recargar el
+  // iframe. En reposo muestran el valor ya interpolado para esta preview
+  // puntual (ver mountRichEditor); Tiptap solo lo reemplaza por la plantilla
+  // cruda mientras el campo tiene el foco, así que sin esta recarga el campo
+  // se queda mostrando el placeholder sin resolver ("{{total}}") apenas se
+  // confirma la edición, hasta el próximo cambio que sí recargue por otro motivo.
   function stripCopyAndText(cfg: ReportTemplateConfig) {
     return {
       ...cfg,
-      copy: null,
+      copy: {
+        header: { greeting: cfg.copy.header.greeting },
+        comparativos: { team: { desc: cfg.copy.comparativos.team.desc } },
+        comportamientos: { description: cfg.copy.comportamientos.description },
+        comentarios: { questionIntro: cfg.copy.comentarios.questionIntro },
+      },
       customTextBoxes: cfg.customTextBoxes.map(({ text, ...rest }) => rest),
     };
   }
@@ -1057,6 +1190,14 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
   // real SIEMPRE dispare el request, sin importar qué tan parecido sea el
   // config al default.
   const hasRequestedPreviewRef = useRef(false);
+  // Evaluado con el que se generó el último HTML en vivo — comparado aparte
+  // de `config` porque cambiar de evaluado NO toca `config` para nada: sin
+  // esto, `isOnlyTextChange` comparaba el mismo config contra sí mismo (da
+  // "true" trivialmente) y el efecto se salía sin recargar nunca la vista en
+  // vivo al cambiar de persona en el selector — se quedaba mostrando al
+  // evaluado anterior indefinidamente (el PDF de la derecha sí se refrescaba,
+  // porque el selector lo dispara aparte).
+  const prevEvaluateeRef = useRef(evaluateeEmail);
 
   // Debounce: regenerar la vista previa en vivo ~700ms después del último
   // cambio que Tiptap no pueda reflejar por su cuenta (ver arriba de
@@ -1067,9 +1208,12 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
   useEffect(() => {
     if (loading || !evaluateeEmail) return;
     const prev = prevConfigForReloadRef.current;
+    const prevEvaluatee = prevEvaluateeRef.current;
     prevConfigForReloadRef.current = config;
+    prevEvaluateeRef.current = evaluateeEmail;
     const isFirst = !hasRequestedPreviewRef.current;
-    if (!isFirst && isOnlyTextChange(prev, config)) return;
+    const evaluateeChanged = prevEvaluatee !== evaluateeEmail;
+    if (!isFirst && !evaluateeChanged && isOnlyTextChange(prev, config)) return;
     let timer: ReturnType<typeof setTimeout>;
     const schedule = (delay: number) => {
       timer = setTimeout(() => {
@@ -1078,7 +1222,7 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
         runPreview(config, evaluateeEmail);
       }, delay);
     };
-    schedule(isFirst ? 0 : 700);
+    schedule(isFirst || evaluateeChanged ? 0 : 700);
     return () => clearTimeout(timer);
   }, [config, evaluateeEmail, loading, runPreview]);
 
@@ -1167,6 +1311,32 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
     setConfig((prev) => applyCopyByPath(prev, path, value));
   }, []);
 
+  // Guarda la descripción editada de una sección personalizada — a
+  // diferencia de `updateCopyByPath`, esto NO toca `config` (esta encuesta no
+  // vive en la plantilla global) y persiste de inmediato contra
+  // `report-sections`, en vez de esperar a "Guardar plantilla". Como
+  // `config`/`evaluateeEmail` no cambian al editar esto, el efecto de
+  // auto-refresco de los paneles no se dispara solo — por eso se llama a
+  // `runPreview`/`runRealPdf` acá mismo tras guardar, igual que ya hace el
+  // manejo de los 4 campos con placeholder (ver `stripCopyAndText`).
+  const commitSectionField = useCallback((sectionId: string, field: "name" | "description", html: string) => {
+    const updated = reportSections.map((s) => (s.id === sectionId ? { ...s, [field]: html } : s));
+    setReportSections(updated);
+    fetch(`/api/evaluaciones360/surveys/${evaluation.id}/report-sections`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reportSections: updated }),
+    }).then((res) => {
+      if (!res.ok) return;
+      const refresh = () => {
+        if (isEditingRef.current) { setTimeout(refresh, 400); return; }
+        runPreview(config, evaluateeEmail);
+        runRealPdf(config, evaluateeEmail);
+      };
+      refresh();
+    }).catch(() => {});
+  }, [reportSections, evaluation.id, config, evaluateeEmail, runPreview, runRealPdf]);
+
   // Si hay un campo con foco (o recién enfocado) con cambios que Tiptap
   // todavía no confirmó por blur, los aplica directo sobre `config` — sin
   // esto, guardar o recargar la vista previa justo después de escribir (sin
@@ -1178,9 +1348,22 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
   // sin depender de que el re-render de React con el nuevo estado ya haya ocurrido.
   function flushActiveField(base: ReportTemplateConfig): ReportTemplateConfig {
     const active = activeFieldRef.current;
-    if (!active) return base;
+    // El editor se destruye al perder el foco (ver mountRichEditor) — en el
+    // caso normal `onFieldDeactivate` ya limpió esta ref antes de que
+    // cualquier llamador llegue hasta acá, pero por si alguna vez se corre
+    // sin que el blur haya alcanzado a correr primero, nunca se llama a un
+    // método sobre una instancia ya muerta.
+    if (!active || active.editor.isDestroyed) return base;
     const html = active.editor.getHTML();
     if (html === active.initialHtml) return base;
+    // Un campo "section.<id>.<campo>" no vive en `config` — se guarda aparte
+    // (ver `commitSectionField`) y `base` vuelve intacto.
+    if (active.kind === "copy" && active.key.startsWith("section.")) {
+      const [, sectionId, field] = active.key.split(".");
+      commitSectionField(sectionId, field as "name" | "description", html);
+      activeFieldRef.current = { ...active, initialHtml: html };
+      return base;
+    }
     const flushed = active.kind === "copy"
       ? applyCopyByPath(base, active.key, html)
       : { ...base, customTextBoxes: base.customTextBoxes.map((b) => (b.id === active.key ? { ...b, text: html } : b)) };
@@ -1233,6 +1416,23 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
       ...prev,
       blocks: { ...prev.blocks, [block]: { ...prev.blocks[block], fontScale: pct / 100 } } as ReportTemplateConfig["blocks"],
     })), []);
+  // Espacio real (margin-bottom CSS) bajo el título del bloque — la
+  // alternativa a usar párrafos vacíos como truco de espaciado, que se ve
+  // distinto entre la vista en vivo y el PDF real (ver mountRichEditor /
+  // stripEmptyEdgeParagraphs).
+  const setBlockTitleGap = useCallback((block: ReportBlockId, px: number) =>
+    setConfig((prev) => ({
+      ...prev,
+      blocks: { ...prev.blocks, [block]: { ...prev.blocks[block], titleGap: px } } as ReportTemplateConfig["blocks"],
+    })), []);
+  // Espacio real (margin-top CSS) ANTES del título — se ignora (siempre 0)
+  // si el bloque queda primero en el orden, para no duplicar el espacio que
+  // ya da el encabezado.
+  const setBlockTitleGapBefore = useCallback((block: ReportBlockId, px: number) =>
+    setConfig((prev) => ({
+      ...prev,
+      blocks: { ...prev.blocks, [block]: { ...prev.blocks[block], titleGapBefore: px } } as ReportTemplateConfig["blocks"],
+    })), []);
   // Mismo cambio de estado que `handleDrop` (panel "Orden y tamaños") — acá
   // llamado desde la manija de arrastre directo sobre el documento.
   const setBlocksOrder = useCallback((order: ReportBlockId[]) =>
@@ -1275,8 +1475,8 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
     // Sin pagedjs de por medio, el DOM ya está completo y listo apenas
     // dispara "load" — no hace falta esperar ningún evento de repaginado.
     attachEditHandles(
-      doc, config, setLogoOffset, setCompetenciasIconSize, setBlockFontScalePct, setBlocksOrder, setPageMarginX, setColor, updateTextBox, removeTextBox, updateCopyByPath,
-      onEditStart, onEditEnd, onFieldActivate, forceToolbarUpdate
+      doc, config, setLogoOffset, setCompetenciasIconSize, setBlockFontScalePct, setBlocksOrder, setPageMarginX, setColor, updateTextBox, removeTextBox, updateCopyByPath, commitSectionField,
+      onEditStart, onEditEnd, onFieldActivate, forceToolbarUpdate, onFieldDeactivate, shouldSkipBlur
     );
     const height = doc.documentElement.scrollHeight;
     if (height > 0) setLiveIframeHeight(height);
@@ -1294,7 +1494,7 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
     requestAnimationFrame(() => {
       if (previewContainerRef.current) previewContainerRef.current.scrollTop = savedScrollRef.current;
     });
-  }, [config, setLogoOffset, setCompetenciasIconSize, setBlockFontScalePct, setBlocksOrder, setPageMarginX, setColor, updateTextBox, removeTextBox, updateCopyByPath, onEditStart, onEditEnd, onFieldActivate, forceToolbarUpdate]);
+  }, [config, setLogoOffset, setCompetenciasIconSize, setBlockFontScalePct, setBlocksOrder, setPageMarginX, setColor, updateTextBox, removeTextBox, updateCopyByPath, commitSectionField, onEditStart, onEditEnd, onFieldActivate, forceToolbarUpdate, onFieldDeactivate, shouldSkipBlur]);
 
   function handleDragStart(id: ReportBlockId) { dragIdRef.current = id; }
   function handleDragOver(e: React.DragEvent) { e.preventDefault(); }
@@ -1325,6 +1525,23 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
   // de RichToolbar reaccione a toolbarTick — activeFieldRef por sí sola no
   // dispara re-render al cambiar.
   void toolbarTick;
+
+  // Un bloque queda siempre pegado al borde físico de una hoja — y por lo
+  // tanto su "espacio sobre el título" configurado se suma al margen de
+  // página (~22px en cada hoja) en vez de reemplazarlo, viéndose
+  // desproporcionado frente a un bloque que no arranca hoja nueva — en dos
+  // casos: es el primero del documento, o queda justo después de
+  // "comparativos" o "ranking" (los bloques con salto de página forzado
+  // hoy). Mismo criterio que ya usa `titleMarginTop`/`FORCED_BREAK_AFTER` en
+  // eval360ReportTemplate.ts.
+  const FORCED_BREAK_AFTER: ReportBlockId[] = ["comparativos", "ranking"];
+  const blocksAfterForcedBreak = new Set(
+    FORCED_BREAK_AFTER.map((id) => {
+      const idx = config.blocks.order.indexOf(id);
+      return idx !== -1 ? config.blocks.order[idx + 1] : undefined;
+    }).filter((id): id is ReportBlockId => id !== undefined)
+  );
+  const isBlockPinnedToPageTop = (blockId: ReportBlockId) => config.blocks.order[0] === blockId || blocksAfterForcedBreak.has(blockId);
 
   return (
     <div className="space-y-4">
@@ -1541,6 +1758,50 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
                       </div>
                     </div>
 
+                    {blockId !== "comentarios" && (
+                      <div className="flex items-center justify-between gap-3">
+                        <label className="text-xs font-semibold text-[#1e293b]" title="Separación real (margen CSS) entre el título y las tarjetas/gráficas de abajo — a diferencia de agregar líneas en blanco al título, esto se ve idéntico en la vista en vivo y en el PDF real.">
+                          Espacio bajo el título
+                        </label>
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number" min={0} max={80} step={2}
+                            value={config.blocks[blockId].titleGap}
+                            onChange={(e) => setBlockTitleGap(blockId, parseInt(e.target.value) || 0)}
+                            className="w-16 text-center text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1 outline-none focus:border-primary"
+                          />
+                          <span className="text-[10px] font-bold text-[#64748b]">px</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {blockId !== "comentarios" && (
+                      <div className="flex items-center justify-between gap-3">
+                        <label
+                          className="text-xs font-semibold text-[#1e293b]"
+                          title={
+                            isBlockPinnedToPageTop(blockId)
+                              ? (config.blocks.order[0] === blockId
+                                  ? "Este bloque es el primero del reporte — queda siempre pegado al encabezado, sin espacio arriba, sin importar este número."
+                                  : "Este bloque arranca siempre una hoja nueva (justo después de un salto de página forzado) — ya tiene el margen físico de la hoja como aire arriba, sin importar este número.")
+                              : "Separación real (margen CSS) antes del título, hacia el bloque anterior — igual que 'Espacio bajo el título', se ve idéntico en vivo y en el PDF."
+                          }
+                        >
+                          Espacio sobre el título
+                        </label>
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number" min={0} max={100} step={2}
+                            disabled={isBlockPinnedToPageTop(blockId)}
+                            value={config.blocks[blockId].titleGapBefore}
+                            onChange={(e) => setBlockTitleGapBefore(blockId, parseInt(e.target.value) || 0)}
+                            className="w-16 text-center text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1 outline-none focus:border-primary disabled:opacity-40"
+                          />
+                          <span className="text-[10px] font-bold text-[#64748b]">px</span>
+                        </div>
+                      </div>
+                    )}
+
                     {blockId === "competencias" && (
                       <>
                         <div className="flex items-center justify-between gap-3">
@@ -1613,7 +1874,23 @@ export default function EvalReportTemplateEditor({ evaluation }: Props) {
       </div>
 
       {/* ── Barra de formato de texto — persistente, siempre visible arriba de la vista previa ── */}
-      <RichToolbar activeField={activeFieldRef.current} />
+      <div
+        ref={toolbarContainerRef}
+        onMouseDownCapture={() => { isToolbarInteractionRef.current = true; }}
+        onBlurCapture={() => {
+          // En el frame siguiente (no en el mismo tick): si el foco ya salió
+          // de toda la barra (no se movió a OTRO control de la misma barra),
+          // se cierra la ventana de "interacción con la barra" — recién ahí
+          // un blur del editor de Tiptap se trata como un blur real.
+          requestAnimationFrame(() => {
+            if (!toolbarContainerRef.current?.contains(document.activeElement)) {
+              isToolbarInteractionRef.current = false;
+            }
+          });
+        }}
+      >
+        <RichToolbar activeField={activeFieldRef.current} />
+      </div>
 
       {/* ── Vista previa: editable a la izquierda, PDF real a la derecha ──── */}
       {/* Ya no existe un algoritmo propio que intente adivinar los cortes de

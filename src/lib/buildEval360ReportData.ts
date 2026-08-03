@@ -127,6 +127,7 @@ export function buildEval360ReportData(params: {
     if (myPeerScore === null) return;
     const myAutoScore = computeMyCustomSectionScore(section, autoAssignments, autoQuestions);
     vsCustomSections.push({
+      id: section.id,
       name: section.name,
       description: section.description,
       position: section.position,

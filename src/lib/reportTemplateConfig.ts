@@ -56,14 +56,23 @@ export interface ReportBlocksConfig {
     /** Categoría (texto exacto) → clave de ícono en Eval360ReportIcons, o `null` = sin ícono.
      *  Si una categoría no aparece aquí, se usa el match automático por nombre conocido. */
     categoryIcons: Record<string, string | null>;
+    /** Espacio (px) entre el título del bloque y su contenido — propiedad CSS real
+     *  (margin-bottom), no un truco de párrafos vacíos: se ve idéntico en la vista
+     *  en vivo y en el PDF real. */
+    titleGap: number;
+    /** Espacio (px) ANTES del título — margin-top real, ignorado (siempre 0) si
+     *  este bloque queda primero en `order` (pegado al encabezado). */
+    titleGapBefore: number;
   };
   comparativos: {
     fontScale: number;
     fixedOrder: ["alegra", "team", "auto"];
+    titleGap: number;
+    titleGapBefore: number;
   };
-  comportamientos: { fontScale: number };
-  ranking: { fontScale: number };
-  comentarios: { fontScale: number };
+  comportamientos: { fontScale: number; titleGap: number; titleGapBefore: number };
+  ranking: { fontScale: number; titleGap: number; titleGapBefore: number };
+  comentarios: { fontScale: number; titleGap: number; titleGapBefore: number };
 }
 
 /** Todo el texto visible del reporte, editable desde Reportes → Plantilla.
@@ -149,11 +158,11 @@ export const DEFAULT_TEMPLATE_CONFIG: ReportTemplateConfig = {
   },
   blocks: {
     order: ["competencias", "comparativos", "comportamientos", "ranking", "comentarios"],
-    competencias: { fontScale: 1.15, iconSize: 25, categoryIcons: {} },
-    comparativos: { fontScale: 1.15, fixedOrder: ["alegra", "team", "auto"] },
-    comportamientos: { fontScale: 1 },
-    ranking: { fontScale: 1 },
-    comentarios: { fontScale: 1 },
+    competencias: { fontScale: 1.15, iconSize: 25, categoryIcons: {}, titleGap: 12, titleGapBefore: 30 },
+    comparativos: { fontScale: 1.15, fixedOrder: ["alegra", "team", "auto"], titleGap: 12, titleGapBefore: 30 },
+    comportamientos: { fontScale: 1, titleGap: 12, titleGapBefore: 30 },
+    ranking: { fontScale: 1, titleGap: 12, titleGapBefore: 30 },
+    comentarios: { fontScale: 1, titleGap: 12, titleGapBefore: 30 },
   },
   copy: {
     header: {
