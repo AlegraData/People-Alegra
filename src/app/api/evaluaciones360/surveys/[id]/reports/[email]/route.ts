@@ -58,6 +58,10 @@ export async function GET(req: Request, { params }: Ctx) {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `${download ? "attachment" : "inline"}; filename="${filename}"`,
+        // Es un reporte de desempeño individual — nunca debe quedar cacheado
+        // por un proxy compartido ni persistido en el caché de disco del
+        // navegador (relevante en un computador compartido/público).
+        "Cache-Control": "private, no-store, max-age=0",
       },
     });
   } catch (error) {
