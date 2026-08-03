@@ -85,9 +85,16 @@ export async function POST(request: Request) {
     if (format === "html") {
       return new NextResponse(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }
+    // pinFooterToLastPage:false — esta vista previa se regenera sola con
+    // cada edición (varias veces por minuto mientras el admin ajusta la
+    // plantilla); la búsqueda binaria que deja el footer exacto al fondo de
+    // la hoja cuesta hasta 7 renders de Puppeteer por PDF, demasiado para un
+    // refresco tan frecuente. El PDF que de verdad se descarga o se envía
+    // por correo (reports/[email], report-sends) sí la usa completa.
     const pdf = await generatePdfFromHtml(html, {
       marginPx: templateConfig.layout.pageMarginY,
       backgroundColor: templateConfig.colors.background,
+      pinFooterToLastPage: false,
     });
     return new NextResponse(new Uint8Array(pdf), { headers: { "Content-Type": "application/pdf" } });
   } catch (error) {

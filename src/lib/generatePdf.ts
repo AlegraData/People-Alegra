@@ -73,10 +73,10 @@ async function setFooterSpacerHeight(page: PdfPage, px: number): Promise<boolean
  *    una hoja extra). Cada paso es un page.pdf() real sobre el mismo
  *    documento ya cargado (no relanza Chromium ni recarga el HTML).
  */
-async function renderWithFooterPinnedToLastPage(page: PdfPage, pdfOptions: PdfOptions, marginPx: number): Promise<Buffer> {
+async function renderWithFooterPinnedToLastPage(page: PdfPage, pdfOptions: PdfOptions, marginPx: number, pinFooter: boolean): Promise<Buffer> {
   const hasFooter = await setFooterSpacerHeight(page, 0);
   const basePdf = Buffer.from(await page.pdf(pdfOptions));
-  if (!hasFooter || marginPx <= 0) return basePdf;
+  if (!hasFooter || marginPx <= 0 || !pinFooter) return basePdf;
 
   const targetPages = countPdfPages(basePdf);
   let lo = 0;
@@ -100,9 +100,24 @@ async function renderWithFooterPinnedToLastPage(page: PdfPage, pdfOptions: PdfOp
   return best;
 }
 
-export async function generatePdfFromHtml(html: string, options?: { marginPx?: number; backgroundColor?: string }): Promise<Buffer> {
+export async function generatePdfFromHtml(
+  html: string,
+  options?: { marginPx?: number; backgroundColor?: string; pinFooterToLastPage?: boolean }
+): Promise<Buffer> {
   const marginPx = options?.marginPx ?? 0;
   const backgroundColor = options?.backgroundColor ?? "#ffffff";
+  // La búsqueda binaria de renderWithFooterPinnedToLastPage cuesta hasta 7
+  // renders de Puppeteer por PDF (1 base + 6 de búsqueda) — imperceptible en
+  // desarrollo (Chrome nativo, varios núcleos), pero en Cloud Run (1 vCPU) esa
+  // multiplicación convirtió cada refresco automático de la vista previa
+  // (dispara sola con cada edición) en una petición de 5-18s y el servicio
+  // entró en autoscaling por CPU — el panel "PDF real" quedaba en blanco
+  // porque, para cuando una respuesta lenta llegaba, ya había una petición
+  // más nueva en curso y esa vieja se descartaba (mismo patrón para todas).
+  // Por defecto sigue activo (true) para el PDF final que se descarga o se
+  // envía por correo, donde sí importa que quede exacto y que solo se
+  // genere una vez por acción del usuario, no en un loop de auto-refresco.
+  const pinFooterToLastPage = options?.pinFooterToLastPage ?? true;
   const fillerTemplate = `<div style="width:100%;height:100%;margin:0;padding:0;background:${backgroundColor};"></div>`;
   const pdfOptions: PdfOptions = {
     format: "A4",
@@ -118,7 +133,7 @@ export async function generatePdfFromHtml(html: string, options?: { marginPx?: n
     const page = await browser.newPage();
     try {
       await page.setContent(html, { waitUntil: "load" });
-      return await renderWithFooterPinnedToLastPage(page, pdfOptions, marginPx);
+      return await renderWithFooterPinnedToLastPage(page, pdfOptions, marginPx, pinFooterToLastPage);
     } finally {
       await page.close();
     }
