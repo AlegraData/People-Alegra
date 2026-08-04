@@ -2,7 +2,15 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { createClient } from "@/utils/supabase/server";
+import { supabaseAdmin } from "@/utils/supabase/admin";
 import { getDescendantEmployees } from "@/lib/orgHierarchy";
+
+async function get360EffectiveRole(userId: string): Promise<string> {
+  const { data: roleData } = await supabaseAdmin.from("user_roles").select("role").eq("user_id", userId).single();
+  const { data: modRoleData } = await supabaseAdmin
+    .from("user_module_roles").select("role").eq("user_id", userId).eq("module", "360").single();
+  return modRoleData?.role ?? roleData?.role ?? "viewer";
+}
 
 // Autoservicio de LÍDER: sin chequeo de rol de módulo — el liderazgo se
 // prueba con la jerarquía real (v_hc_activo_compartida), no con un rol de
@@ -15,13 +23,26 @@ import { getDescendantEmployees } from "@/lib/orgHierarchy";
 // "tiene reporte o no". Selección explícita de columnas: nunca se expone
 // `status` (podría no ser "sent" en otro registro de la misma persona) ni
 // `error` (puede traer texto crudo de un fallo de envío, sin uso aquí).
-export async function GET() {
+//
+// `?previewAs=<email>`: solo admin/manager del módulo — misma herramienta
+// de "vista previa" que en my-reports. Sin este parámetro, el liderazgo
+// consultado sigue siendo estrictamente el de la sesión real.
+export async function GET(req: Request) {
   try {
     const supabase = await createClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user?.email) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-    const team = await getDescendantEmployees(user.email);
+    const previewAs = new URL(req.url).searchParams.get("previewAs")?.trim().toLowerCase();
+    let leaderEmail = user.email;
+    if (previewAs) {
+      const effectiveRole = await get360EffectiveRole(user.id);
+      if (!["admin", "manager"].includes(effectiveRole))
+        return NextResponse.json({ error: "Sin permiso" }, { status: 403 });
+      leaderEmail = previewAs;
+    }
+
+    const team = await getDescendantEmployees(leaderEmail);
     if (team.length === 0) {
       return NextResponse.json({ isLeader: false, members: [] });
     }
@@ -38,8 +59,19 @@ export async function GET() {
     });
 
     const teamByEmail = new Map(team.map((m) => [m.correo, m]));
+
+    // Avatar: mismo origen que /organigrama — solo existe para quien ya
+    // inició sesión alguna vez en People Hub (se guarda en el callback de
+    // Google OAuth), así que puede venir null para el resto.
+    const avatarRows = await prisma.userRole.findMany({
+      where: { email: { in: teamEmails } },
+      select: { email: true, avatarUrl: true },
+    });
+    const avatarByEmail = new Map(avatarRows.map((r) => [r.email.toLowerCase(), r.avatarUrl]));
+
     const membersByEmail = new Map<string, {
       correo: string; nombre: string | null; cargo: string | null; technicalTeam: string | null;
+      avatarUrl: string | null;
       reports: { evaluationId: string; title: string; sentAt: string | null }[];
     }>();
 
@@ -49,6 +81,7 @@ export async function GET() {
       if (!membersByEmail.has(r.evaluateeEmail)) {
         membersByEmail.set(r.evaluateeEmail, {
           correo: info.correo, nombre: info.nombre, cargo: info.cargo, technicalTeam: info.technicalTeam,
+          avatarUrl: avatarByEmail.get(info.correo) ?? null,
           reports: [],
         });
       }

@@ -10,6 +10,11 @@ interface Props {
   /** Email del usuario logueado — el endpoint de reportes exige que coincida
    *  con el evaluado (o con un líder suyo) para poder verlo/descargarlo. */
   userEmail: string;
+  /** Solo para el panel de admin (vista previa): renderiza "Mis resultados"
+   *  y "Mi equipo" tal como los vería este correo, en vez de los del usuario
+   *  logueado. El acceso a los PDFs sigue siendo el de la sesión real (admin
+   *  del módulo) — esto solo cambia de quién se pide la jerarquía/reportes. */
+  previewAs?: string;
 }
 
 interface MyReport {
@@ -29,10 +34,36 @@ interface TeamMember {
   nombre: string | null;
   cargo: string | null;
   technicalTeam: string | null;
+  avatarUrl: string | null;
   reports: TeamMemberReport[];
 }
 
 type Tab = "evaluaciones" | "resultados" | "equipo";
+
+const TEAM_PAGE_SIZE = 10;
+
+function Avatar({ name, email, url }: { name: string | null; email: string; url: string | null }) {
+  // Las fotos vienen del CDN de Google (lh3.googleusercontent.com) — a veces
+  // una carga puntual falla ahí (bloqueadores, límite de conexiones al mismo
+  // host, etc.) aunque la URL guardada sea válida. Sin este fallback, esa
+  // falla deja el ícono roto del navegador en vez de caer a las iniciales.
+  const [broken, setBroken] = useState(false);
+  if (url && !broken) {
+    return (
+      <img
+        src={url}
+        alt={name ?? email}
+        onError={() => setBroken(true)}
+        className="w-11 h-11 rounded-2xl object-cover shrink-0"
+      />
+    );
+  }
+  return (
+    <div className="w-11 h-11 rounded-2xl bg-primary/10 flex items-center justify-center shrink-0">
+      <span className="text-sm font-black text-primary">{(name ?? email)[0].toUpperCase()}</span>
+    </div>
+  );
+}
 
 function formatDate(iso: string | null): string {
   if (!iso) return "";
@@ -45,8 +76,8 @@ function formatDate(iso: string | null): string {
 // esta persona lidera a alguien, "Mi equipo" (los reportes ya enviados de
 // TODO su equipo descendente, todos los niveles — ver
 // /api/evaluaciones360/my-team-reports).
-export default function ViewerHome({ evaluations, onTake, userEmail }: Props) {
-  const [tab, setTab] = useState<Tab>("evaluaciones");
+export default function ViewerHome({ evaluations, onTake, userEmail, previewAs }: Props) {
+  const [tab, setTab] = useState<Tab>(previewAs ? "resultados" : "evaluaciones");
   const [reports, setReports] = useState<MyReport[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -54,22 +85,26 @@ export default function ViewerHome({ evaluations, onTake, userEmail }: Props) {
   const [team, setTeam] = useState<TeamMember[]>([]);
   const [teamLoading, setTeamLoading] = useState(true);
   const [teamSearch, setTeamSearch] = useState("");
+  const [teamPage, setTeamPage] = useState(1);
+
+  const query = previewAs ? `?previewAs=${encodeURIComponent(previewAs)}` : "";
+  const reportsOwnerEmail = previewAs ?? userEmail;
 
   useEffect(() => {
-    fetch("/api/evaluaciones360/my-reports")
+    fetch(`/api/evaluaciones360/my-reports${query}`)
       .then((r) => r.json())
       .then((d) => setReports((d.reports ?? []) as MyReport[]))
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [query]);
 
   useEffect(() => {
-    fetch("/api/evaluaciones360/my-team-reports")
+    fetch(`/api/evaluaciones360/my-team-reports${query}`)
       .then((r) => r.json())
       .then((d) => { setIsLeader(!!d.isLeader); setTeam((d.members ?? []) as TeamMember[]); })
       .catch(() => {})
       .finally(() => setTeamLoading(false));
-  }, []);
+  }, [query]);
 
   const hasReports = reports.length > 0;
 
@@ -84,9 +119,21 @@ export default function ViewerHome({ evaluations, onTake, userEmail }: Props) {
     );
   }, [team, teamSearch]);
 
+  useEffect(() => { setTeamPage(1); }, [teamSearch, team]);
+
+  const totalTeamPages = Math.max(1, Math.ceil(filteredTeam.length / TEAM_PAGE_SIZE));
+  const pagedTeam = filteredTeam.slice((teamPage - 1) * TEAM_PAGE_SIZE, teamPage * TEAM_PAGE_SIZE);
+
   return (
     <div className="space-y-5">
+      {previewAs && (
+        <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 text-sm font-bold text-amber-800">
+          <Eye className="w-4 h-4 shrink-0" />
+          Vista previa — viendo esta pantalla como la vería <span className="underline">{previewAs}</span>
+        </div>
+      )}
       <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit flex-wrap">
+        {!previewAs && (
         <button
           onClick={() => setTab("evaluaciones")}
           className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
@@ -96,6 +143,7 @@ export default function ViewerHome({ evaluations, onTake, userEmail }: Props) {
           <ClipboardList className="w-4 h-4" />
           Mis Evaluaciones 360°
         </button>
+        )}
         <button
           onClick={() => setTab("resultados")}
           className={`relative flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
@@ -157,7 +205,7 @@ export default function ViewerHome({ evaluations, onTake, userEmail }: Props) {
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <a
-                    href={`/api/evaluaciones360/surveys/${r.evaluationId}/reports/${encodeURIComponent(userEmail)}`}
+                    href={`/api/evaluaciones360/surveys/${r.evaluationId}/reports/${encodeURIComponent(reportsOwnerEmail)}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-1.5 text-xs font-bold bg-slate-100 text-[#1e293b] px-4 py-2.5 rounded-xl hover:bg-slate-200 transition-colors"
@@ -165,7 +213,7 @@ export default function ViewerHome({ evaluations, onTake, userEmail }: Props) {
                     <Eye className="w-3.5 h-3.5" /> Ver PDF
                   </a>
                   <a
-                    href={`/api/evaluaciones360/surveys/${r.evaluationId}/reports/${encodeURIComponent(userEmail)}?download=1`}
+                    href={`/api/evaluaciones360/surveys/${r.evaluationId}/reports/${encodeURIComponent(reportsOwnerEmail)}?download=1`}
                     className="flex items-center gap-1.5 text-xs font-bold bg-[#1e293b] text-white px-4 py-2.5 rounded-xl hover:bg-primary transition-colors"
                   >
                     <Download className="w-3.5 h-3.5" /> Descargar
@@ -215,12 +263,10 @@ export default function ViewerHome({ evaluations, onTake, userEmail }: Props) {
             </p>
 
             <div className="space-y-2">
-              {filteredTeam.map((m) => (
+              {pagedTeam.map((m) => (
                 <div key={m.correo} className="bg-white rounded-2xl border border-slate-100 shadow-sm px-5 py-4">
                   <div className="flex items-center gap-4">
-                    <div className="w-11 h-11 rounded-2xl bg-primary/10 flex items-center justify-center shrink-0">
-                      <Users className="w-5 h-5 text-primary" />
-                    </div>
+                    <Avatar name={m.nombre} email={m.correo} url={m.avatarUrl} />
                     <div className="flex-1 min-w-0">
                       <p className="font-bold text-[#1e293b] truncate">{m.nombre ?? m.correo}</p>
                       <p className="text-xs text-[#94a3b8] truncate">
@@ -254,6 +300,43 @@ export default function ViewerHome({ evaluations, onTake, userEmail }: Props) {
                 </div>
               ))}
             </div>
+
+            {totalTeamPages > 1 && (
+              <div className="flex items-center justify-between gap-3 px-1">
+                <p className="text-xs text-[#94a3b8]">Página {teamPage} de {totalTeamPages}</p>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setTeamPage((p) => Math.max(1, p - 1))}
+                    disabled={teamPage === 1}
+                    className="px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-200 disabled:opacity-40 hover:bg-slate-50 transition-colors"
+                  >
+                    ← Anterior
+                  </button>
+                  {Array.from({ length: totalTeamPages }, (_, i) => i + 1)
+                    .filter((p) => p === 1 || p === totalTeamPages || Math.abs(p - teamPage) <= 2)
+                    .map((p, idx, arr) => (
+                      <span key={p} className="flex items-center">
+                        {idx > 0 && arr[idx - 1] !== p - 1 && <span className="px-1 text-xs text-[#94a3b8]">…</span>}
+                        <button
+                          onClick={() => setTeamPage(p)}
+                          className={`w-8 h-8 text-xs font-bold rounded-lg transition-colors ${
+                            teamPage === p ? "bg-primary text-white" : "text-[#64748b] hover:bg-slate-100"
+                          }`}
+                        >
+                          {p}
+                        </button>
+                      </span>
+                    ))}
+                  <button
+                    onClick={() => setTeamPage((p) => Math.min(totalTeamPages, p + 1))}
+                    disabled={teamPage === totalTeamPages}
+                    className="px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-200 disabled:opacity-40 hover:bg-slate-50 transition-colors"
+                  >
+                    Siguiente →
+                  </button>
+                </div>
+              </div>
+            )}
           </>
         )
       )}

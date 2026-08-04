@@ -8,10 +8,11 @@ import {
   TrendingUp, MessageSquare, UserRound, Power, LayoutGrid,
 } from "lucide-react";
 import Link from "next/link";
+import ViewerHome from "@/components/evaluaciones360/ViewerHome";
 
 type Role = "admin" | "manager" | "viewer";
 type PageSize = 10 | 25 | 50 | 100 | "all";
-type AdminTab = "usuarios" | "modulos";
+type AdminTab = "usuarios" | "modulos" | "vista-previa";
 
 interface ModuleConfig {
   id: string;
@@ -86,6 +87,8 @@ export default function AdminPage() {
   const [moduleList, setModuleList]         = useState<ModuleConfig[]>([]);
   const [modulesLoading, setModulesLoading] = useState(false);
   const [togglingModule, setTogglingModule] = useState<string | null>(null);
+  const [previewEmailInput, setPreviewEmailInput] = useState("");
+  const [previewEmail, setPreviewEmail] = useState<string | null>(null);
   const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -291,7 +294,9 @@ export default function AdminPage() {
         <p className="text-[#64748b] mt-1">
           {activeTab === "usuarios"
             ? "Gestiona los accesos y roles de los usuarios de la plataforma."
-            : "Activa o desactiva los módulos disponibles en la plataforma."}
+            : activeTab === "modulos"
+            ? "Activa o desactiva los módulos disponibles en la plataforma."
+            : "Revisa cómo ve cualquier correo la pantalla de Evaluaciones 360°, sin necesitar sus credenciales."}
         </p>
       </div>
 
@@ -318,6 +323,17 @@ export default function AdminPage() {
         >
           <LayoutGrid className="w-4 h-4" />
           Módulos
+        </button>
+        <button
+          onClick={() => setActiveTab("vista-previa")}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${
+            activeTab === "vista-previa"
+              ? "bg-white shadow-sm text-[#1e293b]"
+              : "text-[#64748b] hover:text-[#1e293b]"
+          }`}
+        >
+          <Eye className="w-4 h-4" />
+          Vista previa 360°
         </button>
       </div>
 
@@ -413,6 +429,52 @@ export default function AdminPage() {
             })}
           </div>
         )
+      )}
+
+      {/* ── Tab: Vista previa 360° ──────────────────────────────────────────────── */}
+      {activeTab === "vista-previa" && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-[2rem] p-7 border border-slate-100 shadow-sm flex flex-col sm:flex-row gap-3 sm:items-end">
+            <div className="flex-1">
+              <label className="text-[10px] font-black uppercase tracking-widest text-[#64748b] mb-1.5 block">
+                Correo a previsualizar
+              </label>
+              <input
+                type="email"
+                value={previewEmailInput}
+                onChange={(e) => setPreviewEmailInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && previewEmailInput.trim()) setPreviewEmail(previewEmailInput.trim().toLowerCase());
+                }}
+                placeholder="nombre.apellido@alegra.com"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-primary transition-colors"
+              />
+            </div>
+            <button
+              onClick={() => previewEmailInput.trim() && setPreviewEmail(previewEmailInput.trim().toLowerCase())}
+              disabled={!previewEmailInput.trim()}
+              className="flex items-center justify-center gap-2 bg-primary text-white px-6 py-3 rounded-xl text-sm font-bold hover:shadow-md hover:shadow-primary/20 transition-all disabled:opacity-40"
+            >
+              <Eye className="w-4 h-4" />
+              Cargar vista previa
+            </button>
+            {previewEmail && (
+              <button
+                onClick={() => { setPreviewEmail(null); setPreviewEmailInput(""); }}
+                className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-bold text-[#64748b] hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-4 h-4" />
+                Limpiar
+              </button>
+            )}
+          </div>
+
+          {previewEmail && (
+            // key fuerza remount al cambiar de correo, para no arrastrar
+            // estado (tab activo, búsqueda de equipo) de la vista previa anterior.
+            <ViewerHome key={previewEmail} evaluations={[]} onTake={() => {}} userEmail={previewEmail} previewAs={previewEmail} />
+          )}
+        </div>
       )}
 
       {/* ── Tab: Usuarios ───────────────────────────────────────────────────────── */}
