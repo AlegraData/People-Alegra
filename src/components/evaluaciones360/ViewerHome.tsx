@@ -85,6 +85,7 @@ export default function ViewerHome({ evaluations, onTake, userEmail, previewAs }
   const [team, setTeam] = useState<TeamMember[]>([]);
   const [teamLoading, setTeamLoading] = useState(true);
   const [teamSearch, setTeamSearch] = useState("");
+  const [teamFilter, setTeamFilter] = useState("");
   const [teamPage, setTeamPage] = useState(1);
 
   const query = previewAs ? `?previewAs=${encodeURIComponent(previewAs)}` : "";
@@ -108,18 +109,30 @@ export default function ViewerHome({ evaluations, onTake, userEmail, previewAs }
 
   const hasReports = reports.length > 0;
 
+  // Solo tiene sentido mostrar un filtro de equipo cuando el árbol descendente
+  // de este líder de verdad abarca más de un equipo (lo normal es que un
+  // líder solo tenga gente de su propio equipo) — con 0 o 1 equipos el select
+  // no aporta nada, así que ni se renderiza.
+  const distinctTeams = useMemo(() => {
+    const set = new Set(team.map((m) => m.technicalTeam).filter((t): t is string => !!t));
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [team]);
+
   const filteredTeam = useMemo(() => {
     const q = teamSearch.trim().toLowerCase();
-    if (!q) return team;
-    return team.filter((m) =>
-      (m.nombre ?? "").toLowerCase().includes(q) ||
-      m.correo.toLowerCase().includes(q) ||
-      (m.cargo ?? "").toLowerCase().includes(q) ||
-      (m.technicalTeam ?? "").toLowerCase().includes(q)
-    );
-  }, [team, teamSearch]);
+    return team.filter((m) => {
+      if (teamFilter && m.technicalTeam !== teamFilter) return false;
+      if (!q) return true;
+      return (
+        (m.nombre ?? "").toLowerCase().includes(q) ||
+        m.correo.toLowerCase().includes(q) ||
+        (m.cargo ?? "").toLowerCase().includes(q) ||
+        (m.technicalTeam ?? "").toLowerCase().includes(q)
+      );
+    });
+  }, [team, teamSearch, teamFilter]);
 
-  useEffect(() => { setTeamPage(1); }, [teamSearch, team]);
+  useEffect(() => { setTeamPage(1); }, [teamSearch, teamFilter, team]);
 
   const totalTeamPages = Math.max(1, Math.ceil(filteredTeam.length / TEAM_PAGE_SIZE));
   const pagedTeam = filteredTeam.slice((teamPage - 1) * TEAM_PAGE_SIZE, teamPage * TEAM_PAGE_SIZE);
@@ -242,19 +255,34 @@ export default function ViewerHome({ evaluations, onTake, userEmail, previewAs }
           </div>
         ) : (
           <>
-            <div className="relative max-w-md">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#94a3b8]" />
-              <input
-                type="text"
-                placeholder="Buscar por nombre, correo, cargo o equipo…"
-                value={teamSearch}
-                onChange={(e) => setTeamSearch(e.target.value)}
-                className="w-full pl-11 pr-10 py-3 rounded-2xl border border-slate-200 bg-white text-sm text-[#1e293b] placeholder:text-[#94a3b8] focus:outline-none focus:ring-2 focus:ring-primary/30 transition-shadow"
-              />
-              {teamSearch && (
-                <button onClick={() => setTeamSearch("")} className="absolute right-4 top-1/2 -translate-y-1/2 text-[#94a3b8] hover:text-[#64748b]">
-                  <X className="w-4 h-4" />
-                </button>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#94a3b8]" />
+                <input
+                  type="text"
+                  placeholder="Buscar por nombre, correo, cargo o equipo…"
+                  value={teamSearch}
+                  onChange={(e) => setTeamSearch(e.target.value)}
+                  className="w-full pl-11 pr-10 py-3 rounded-2xl border border-slate-200 bg-white text-sm text-[#1e293b] placeholder:text-[#94a3b8] focus:outline-none focus:ring-2 focus:ring-primary/30 transition-shadow"
+                />
+                {teamSearch && (
+                  <button onClick={() => setTeamSearch("")} className="absolute right-4 top-1/2 -translate-y-1/2 text-[#94a3b8] hover:text-[#64748b]">
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+
+              {distinctTeams.length > 1 && (
+                <select
+                  value={teamFilter}
+                  onChange={(e) => setTeamFilter(e.target.value)}
+                  className="px-4 py-3 rounded-2xl border border-slate-200 bg-white text-sm font-bold text-[#1e293b] outline-none focus:ring-2 focus:ring-primary/30 transition-shadow cursor-pointer"
+                >
+                  <option value="">Todos los equipos</option>
+                  {distinctTeams.map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
               )}
             </div>
 
