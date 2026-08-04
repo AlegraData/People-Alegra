@@ -8,6 +8,9 @@ const jakarta = Plus_Jakarta_Sans({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "People Alegra - Dashboard",
   description: "Portal de crecimiento de Alegra",
+  icons: {
+    icon: "https://cdn1.alegra.com/images/favicon.ico",
+  },
 };
 
 export default function RootLayout({
