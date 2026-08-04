@@ -4,6 +4,7 @@ import prisma from "@/lib/prisma";
 import { createClient } from "@/utils/supabase/server";
 import { supabaseAdmin } from "@/utils/supabase/admin";
 import { generateEval360ReportPdf } from "@/lib/eval360ReportGenerator";
+import { isDescendantOf } from "@/lib/orgHierarchy";
 
 type Ctx = { params: Promise<{ id: string; email: string }> };
 
@@ -38,10 +39,18 @@ export async function GET(req: Request, { params }: Ctx) {
 
     const effectiveRole = await get360EffectiveRole(user.id);
     const isAdminOrManager = ["admin", "manager"].includes(effectiveRole);
-    const isSelf = (user.email ?? "").trim().toLowerCase() === evaluateeEmail;
+    const sessionEmail = (user.email ?? "").trim().toLowerCase();
+    const isSelf = sessionEmail === evaluateeEmail;
 
+    // Un líder (de cualquier nivel, según la jerarquía REAL de hoy en
+    // v_hc_activo_compartida) también puede ver el reporte de alguien de su
+    // equipo descendente — misma política que el propio evaluado: solo si
+    // ya quedó "sent" (nunca antes de que el admin decida enviarlo).
     if (!isAdminOrManager) {
-      if (!isSelf || !(await hasSentReport(id, evaluateeEmail))) {
+      const sent = await hasSentReport(id, evaluateeEmail);
+      const allowedAsSelf = isSelf && sent;
+      const allowedAsLeader = !allowedAsSelf && sent && (await isDescendantOf(sessionEmail, evaluateeEmail));
+      if (!allowedAsSelf && !allowedAsLeader) {
         return NextResponse.json({ error: "Sin permiso" }, { status: 403 });
       }
     }
