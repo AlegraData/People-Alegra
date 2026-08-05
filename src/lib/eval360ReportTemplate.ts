@@ -345,14 +345,28 @@ function horizontalRankingChart(theme: Theme, blockScale: number, rows: Question
   // junto a una barra corta.
   const fontSize = Math.round(11.5 * blockScale);
 
-  const barRows = rows.map((r) => `
-    <div style="display:flex;align-items:center;gap:10px;padding:4px 0;break-inside:avoid;">
-      <span style="flex:0 1 220px;min-width:0;font-size:${fontSize}px;color:${theme.text};line-height:1.3;">${esc(r.text)}</span>
-      <span style="flex:1;position:relative;height:7px;background:${theme.background};border-radius:4px;overflow:hidden;">
-        <span style="position:absolute;left:0;top:0;height:100%;width:${pct(r.alegra)}%;background:${theme.benchmarkGray};border-radius:4px;"></span>
-        <span style="position:absolute;left:0;top:0;height:100%;width:${pct(r.mine)}%;background:${theme.primary};opacity:0.9;border-radius:4px;"></span>
+  // Dos barras APILADAS por comportamiento (mío arriba, Alegra abajo), cada
+  // una con su propio valor — como reporte/Plantilla Feedback 360°.pdf (el de
+  // referencia legado). Antes se dibujaba una sola pista con la barra de
+  // Alegra de fondo y la mía superpuesta encima desde el mismo borde: cuando
+  // los dos valores quedaban cerca, el gris casi no asomaba detrás del teal y
+  // se veía como una sola barra en vez de dos claramente distinguibles.
+  const valueFontSize = Math.round(fontSize * 0.85);
+  const miniBar = (value: number, color: string, textColor: string) => `
+    <div style="display:flex;align-items:center;gap:6px;">
+      <span style="flex:1;position:relative;height:6px;background:${theme.background};border-radius:3px;overflow:hidden;">
+        <span style="position:absolute;left:0;top:0;height:100%;width:${pct(value)}%;background:${color};border-radius:3px;"></span>
       </span>
-      <span style="flex:0 0 28px;font-size:${fontSize}px;font-weight:700;color:${theme.text};text-align:right;">${fmt(r.mine)}</span>
+      <span style="flex:0 0 26px;font-size:${valueFontSize}px;font-weight:700;color:${textColor};text-align:right;">${fmt(value)}</span>
+    </div>`;
+
+  const barRows = rows.map((r) => `
+    <div style="display:flex;align-items:center;gap:10px;padding:5px 0;break-inside:avoid;">
+      <span style="flex:0 1 220px;min-width:0;font-size:${fontSize}px;color:${theme.text};line-height:1.3;">${esc(r.text)}</span>
+      <div style="flex:1;display:flex;flex-direction:column;gap:3px;">
+        ${miniBar(r.mine, theme.primary, theme.text)}
+        ${miniBar(r.alegra, theme.benchmarkGray, theme.textSecondary)}
+      </div>
     </div>`).join("");
 
   return `
